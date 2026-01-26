@@ -1,0 +1,14 @@
+{
+  "name": "eyeson-gui",
+  "version": "1.0.0",
+  "author": {
+    "name": "EyesOn Developer",
+    "email": "dev@eyeson.local"
+  },
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "wailsjsdir": "./frontend/wailsjs",
+  "outputfilename": "eyeson-gui.exe"
+}

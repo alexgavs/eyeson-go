@@ -1,0 +1,33 @@
+﻿# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Database
+*.db
+*.sqlite
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Go
+eyeson-go-server/tmp/
+
+# Node
+eyeson-gui/frontend/node_modules/
+eyeson-gui/frontend/dist/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

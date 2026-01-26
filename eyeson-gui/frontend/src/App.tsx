@@ -1,0 +1,2172 @@
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { Login, GetSims, UpdateSim, ChangeStatus, GetJobs, GetUsers, CreateUser, UpdateUser, DeleteUser, ResetUserPassword, GetRoles, User, Role } from './api';
+
+// ==================== ТИПЫ ====================
+
+interface PendingStatus {
+  msisdn: string;
+  targetStatus: string;
+  attempts: number;
+  startTime: number;
+}
+
+interface ColumnConfig {
+  name: string;
+  field: string;
+  sortable: boolean;
+  sortKey?: string;
+  default: boolean;
+}
+
+interface Toast {
+  id: number;
+  message: string;
+  type: 'info' | 'success' | 'warning' | 'danger';
+}
+
+interface SessionData {
+  token: string;
+  username: string;
+  expiresAt: number;
+}
+
+type NavPage = 'sims' | 'jobs' | 'stats' | 'admin' | 'profile';
+
+// ==================== КОНСТАНТЫ ====================
+
+const ALL_COLUMNS: Record<string, ColumnConfig> = {
+  'MSISDN': { name: 'MSISDN', field: 'MSISDN', sortable: true, sortKey: 'MSISDN', default: true },
+  'CLI': { name: 'CLI', field: 'CLI', sortable: true, sortKey: 'CLI', default: true },
+  'SIM_STATUS_CHANGE': { name: 'Status', field: 'SIM_STATUS_CHANGE', sortable: true, sortKey: 'SIM_STATUS_CHANGE', default: true },
+  'RATE_PLAN': { name: 'Rate Plan', field: 'RATE_PLAN_FULL_NAME', sortable: true, sortKey: 'RATE_PLAN_CHANGE', default: true },
+  'CUSTOMER_LABEL_1': { name: 'Label 1', field: 'CUSTOMER_LABEL_1', sortable: true, sortKey: 'CUSTOMER_LABEL_1', default: true },
+  'CUSTOMER_LABEL_2': { name: 'Label 2', field: 'CUSTOMER_LABEL_2', sortable: true, sortKey: 'CUSTOMER_LABEL_2', default: false },
+  'CUSTOMER_LABEL_3': { name: 'Label 3', field: 'CUSTOMER_LABEL_3', sortable: true, sortKey: 'CUSTOMER_LABEL_3', default: false },
+  'SIM_SWAP': { name: 'ICCID', field: 'SIM_SWAP', sortable: false, default: false },
+  'IMSI': { name: 'IMSI', field: 'IMSI', sortable: false, default: false },
+  'IMEI': { name: 'IMEI', field: 'IMEI', sortable: false, default: false },
+  'APN_NAME': { name: 'APN', field: 'APN_NAME', sortable: true, sortKey: 'APN_NAME', default: false },
+  'IP1': { name: 'IP Address', field: 'IP1', sortable: false, default: false },
+  'MONTHLY_USAGE_MB': { name: 'Usage (MB)', field: 'MONTHLY_USAGE_MB', sortable: true, sortKey: 'MONTHLY_USAGE_MB', default: true },
+  'ALLOCATED_MB': { name: 'Allocated (MB)', field: 'ALLOCATED_MB', sortable: true, sortKey: 'ALLOCATED_MB', default: false },
+  'LAST_SESSION_TIME': { name: 'Last Session', field: 'LAST_SESSION_TIME', sortable: true, sortKey: 'LAST_SESSION_TIME', default: false },
+  'IN_SESSION': { name: 'In Session', field: 'IN_SESSION', sortable: false, default: false }
+};
+
+const STORAGE_KEYS = {
+  columns: 'eyeson_visible_columns',
+  columnOrder: 'eyeson_column_order',
+  session: 'eyeson_session'
+};
+
+const SESSION_DURATION = 24 * 60 * 60 * 1000; // 24 часа
+
+// Cookies helper functions
+const CookieManager = {
+  set(name: string, value: string, days: number = 365): void {
+    const expires = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toUTCString();
+    document.cookie = `${name}=${encodeURIComponent(value)};expires=${expires};path=/;SameSite=Strict`;
+  },
+  
+  get(name: string): string | null {
+    const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+    return match ? decodeURIComponent(match[2]) : null;
+  },
+  
+  remove(name: string): void {
+    document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
+  }
+};
+
+// ==================== ХЕЛПЕРЫ ====================
+
+class SessionManager {
+  static save(token: string, username: string): void {
+    const session: SessionData = {
+      token,
+      username,
+      expiresAt: Date.now() + SESSION_DURATION
+    };
+    localStorage.setItem(STORAGE_KEYS.session, JSON.stringify(session));
+  }
+
+  static load(): SessionData | null {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.session);
+      if (!data) return null;
+      
+      const session: SessionData = JSON.parse(data);
+      if (Date.now() > session.expiresAt) {
+        this.clear();
+        return null;
+      }
+      return session;
+    } catch {
+      return null;
+    }
+  }
+
+  static clear(): void {
+    localStorage.removeItem(STORAGE_KEYS.session);
+  }
+
+  static getToken(): string | null {
+    const session = this.load();
+    return session?.token || null;
+  }
+}
+
+const getStatusBadge = (status: string, isPending: boolean = false) => {
+  let className = 'badge ';
+  if (status === 'Activated') className += 'bg-success';
+  else if (status === 'Suspended') className += 'bg-warning text-dark';
+  else if (status === 'Terminated') className += 'bg-danger';
+  else className += 'bg-secondary';
+
+  return (
+    <span className={className}>
+      {status}
+      {isPending && (
+        <span className="spinner-border spinner-border-sm ms-1" style={{width: '0.7em', height: '0.7em'}}></span>
+      )}
+    </span>
+  );
+};
+
+const getJobStatusBadge = (status: string) => {
+  const badges: Record<string, string> = {
+    'PENDING': 'bg-secondary',
+    'IN_PROGRESS': 'bg-info',
+    'COMPLETED': 'bg-success',
+    'SUCCESS': 'bg-success',
+    'PARTIAL_SUCCESS': 'bg-warning',
+    'FAILED': 'bg-danger'
+  };
+  return <span className={`badge ${badges[status] || 'bg-secondary'}`}>{status}</span>;
+};
+
+const formatDate = (dateValue: string | number) => {
+  if (!dateValue) return '-';
+  try {
+    // Handle Unix timestamp (seconds) - convert to milliseconds
+    if (typeof dateValue === 'number') {
+      return new Date(dateValue * 1000).toLocaleString();
+    }
+    // Handle string that might be Unix timestamp
+    if (typeof dateValue === 'string' && /^\d+$/.test(dateValue)) {
+      return new Date(parseInt(dateValue) * 1000).toLocaleString();
+    }
+    return new Date(dateValue).toLocaleString();
+  } catch {
+    return String(dateValue);
+  }
+};
+
+// ==================== ГЛАВНЫЙ КОМПОНЕНТ ====================
+
+function App() {
+  // Авторизация
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
+  
+  // Навигация
+  const [navPage, setNavPage] = useState<NavPage>('sims');
+  
+  // SIM данные
+  const [allSimsData, setAllSimsData] = useState<any[]>([]); // Все SIM для статистики
+  const [sims, setSims] = useState<any[]>([]);  // Текущая страница
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [statsLoaded, setStatsLoaded] = useState(false);
+  
+  // Фильтры и сортировка
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [pagination, setPagination] = useState({ start: 0, limit: 25 });
+  const [sort, setSort] = useState({ by: "", direction: "ASC" });
+  
+  // Выбор
+  const [selectedSims, setSelectedSims] = useState<Set<string>>(new Set());
+  const [selectedSim, setSelectedSim] = useState<any>(null);
+  
+  // Редактирование
+  const [editMode, setEditMode] = useState(false);
+  const [editValues, setEditValues] = useState<any>({});
+
+  // Pending статусы
+  const [pendingStatuses, setPendingStatuses] = useState<Map<string, PendingStatus>>(new Map());
+  
+  // Jobs - загружаем все и делаем клиентскую пагинацию
+  const [allJobs, setAllJobs] = useState<any[]>([]);  // Все jobs с сервера
+  const [jobs, setJobs] = useState<any[]>([]);        // Текущая страница
+  const [jobsPage, setJobsPage] = useState(1);        // Текущая страница
+  const [jobsPerPage, setJobsPerPage] = useState(25); // Записей на страницу
+  const [jobFilters, setJobFilters] = useState({ jobId: '', status: '' });
+  const [jobsLoaded, setJobsLoaded] = useState(false); // Загружены ли данные
+  
+  // User Management
+  const [users, setUsers] = useState<User[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [usersLoaded, setUsersLoaded] = useState(false);
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [userForm, setUserForm] = useState({ username: '', email: '', password: '', role: 'Viewer' });
+  const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
+  const [resetPasswordUserId, setResetPasswordUserId] = useState<number | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+
+  // Колонки - порядок и видимость из cookies
+  const [columnOrder, setColumnOrder] = useState<string[]>(() => {
+    try {
+      // Сначала пробуем cookies
+      const cookieVal = CookieManager.get(STORAGE_KEYS.columnOrder);
+      if (cookieVal) {
+        const parsed = JSON.parse(cookieVal);
+        // Убедимся, что все ключи существуют
+        if (Array.isArray(parsed) && parsed.every(k => ALL_COLUMNS[k])) {
+          return parsed;
+        }
+      }
+      // Fallback на localStorage
+      const saved = localStorage.getItem(STORAGE_KEYS.columnOrder);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.every(k => ALL_COLUMNS[k])) {
+          return parsed;
+        }
+      }
+    } catch {}
+    return Object.keys(ALL_COLUMNS);
+  });
+
+  const [visibleColumns, setVisibleColumns] = useState<string[]>(() => {
+    try {
+      // Сначала пробуем cookies
+      const cookieVal = CookieManager.get(STORAGE_KEYS.columns);
+      if (cookieVal) {
+        const parsed = JSON.parse(cookieVal);
+        if (Array.isArray(parsed) && parsed.every(k => ALL_COLUMNS[k])) {
+          return parsed;
+        }
+      }
+      // Fallback на localStorage
+      const saved = localStorage.getItem(STORAGE_KEYS.columns);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.every(k => ALL_COLUMNS[k])) {
+          return parsed;
+        }
+      }
+    } catch {}
+    return Object.keys(ALL_COLUMNS).filter(k => ALL_COLUMNS[k].default);
+  });
+  
+  // Dragging state для перестановки колонок
+  const [draggedColumn, setDraggedColumn] = useState<string | null>(null);
+  
+  // Меню колонок
+  const [showColumnMenu, setShowColumnMenu] = useState(false);
+  const [columnMenuPos, setColumnMenuPos] = useState({ x: 0, y: 0 });
+  const columnMenuRef = useRef<HTMLDivElement>(null);
+  
+  // Toast
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const toastIdRef = useRef(0);
+  
+  // Refs
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ==================== ЭФФЕКТЫ ====================
+
+  // Проверка сохраненной сессии при загрузке
+  useEffect(() => {
+    const checkSession = async () => {
+      const session = SessionManager.load();
+      if (session) {
+        console.log('[Session] Found saved session, restoring...');
+        setUsername(session.username);
+        setIsLoggedIn(true);
+      }
+      setIsCheckingSession(false);
+    };
+    checkSession();
+  }, []);
+
+  // Сохранение колонок в cookies и localStorage
+  useEffect(() => {
+    const value = JSON.stringify(visibleColumns);
+    localStorage.setItem(STORAGE_KEYS.columns, value);
+    CookieManager.set(STORAGE_KEYS.columns, value);
+  }, [visibleColumns]);
+
+  // Сохранение порядка колонок в cookies и localStorage
+  useEffect(() => {
+    const value = JSON.stringify(columnOrder);
+    localStorage.setItem(STORAGE_KEYS.columnOrder, value);
+    CookieManager.set(STORAGE_KEYS.columnOrder, value);
+  }, [columnOrder]);
+
+  // Закрытие меню колонок при клике вне
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (columnMenuRef.current && !columnMenuRef.current.contains(e.target as Node)) {
+        setShowColumnMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Загрузка данных после логина
+  useEffect(() => {
+    if (isLoggedIn && !isCheckingSession) {
+      // Сначала загружаем текущую страницу SIM данных
+      loadData(0, pagination.limit).then(() => {
+        // Через 3 секунды загружаем все данные для статистики
+        setTimeout(() => loadAllSimsForStats(), 3000);
+      });
+    }
+  }, [isLoggedIn, isCheckingSession]);
+
+  // Polling для проверки статусов
+  useEffect(() => {
+    if (pendingStatuses.size === 0) {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+      return;
+    }
+
+    pollingRef.current = setInterval(async () => {
+      const updatedPending = new Map(pendingStatuses);
+      let needsRefresh = false;
+
+      for (const [msisdn, pending] of pendingStatuses) {
+        if (Date.now() - pending.startTime < 2000) continue;
+
+        try {
+          const response = await GetSims(msisdn, 0, 1);
+          const freshSim = response.data?.find((s: any) => s.MSISDN === msisdn || s.CLI === msisdn);
+          
+          if (freshSim) {
+            const currentStatus = freshSim.SIM_STATUS_CHANGE;
+            console.log(`[Poll ${pending.attempts}/5] ${msisdn}: Expected=${pending.targetStatus}, Got=${currentStatus}`);
+
+            if (currentStatus === pending.targetStatus) {
+              console.log(`✓ Status confirmed: ${currentStatus}`);
+              showToast(`✓ ${msisdn}: статус изменён на ${currentStatus}`, 'success');
+              updatedPending.delete(msisdn);
+              needsRefresh = true;
+              setSims(prev => prev.map(s => 
+                s.MSISDN === msisdn ? { ...s, ...freshSim, _pending: false } : s
+              ));
+              // Также обновляем selectedSim если открыто модальное окно для этой SIM
+              setSelectedSim((prev: any) => 
+                prev && prev.MSISDN === msisdn ? { ...prev, ...freshSim, _pending: false } : prev
+              );
+            } else if (pending.attempts >= 5) {
+              console.warn(`✗ Status polling timed out for ${msisdn}`);
+              showToast(`⚠ ${msisdn}: статус не подтверждён (таймаут)`, 'warning');
+              updatedPending.delete(msisdn);
+              setSims(prev => prev.map(s => 
+                s.MSISDN === msisdn ? { ...s, _pending: false } : s
+              ));
+              // Также обновляем selectedSim при таймауте
+              setSelectedSim((prev: any) => 
+                prev && prev.MSISDN === msisdn ? { ...prev, _pending: false } : prev
+              );
+            } else {
+              updatedPending.set(msisdn, { ...pending, attempts: pending.attempts + 1 });
+            }
+          }
+        } catch (e) {
+          console.error(`Error polling ${msisdn}:`, e);
+          updatedPending.set(msisdn, { ...pending, attempts: pending.attempts + 1 });
+        }
+      }
+
+      setPendingStatuses(updatedPending);
+      if (needsRefresh) {
+        // Перезагружаем статистику
+        setStatsLoaded(false);
+        setTimeout(() => loadAllSimsForStats(), 2000);
+      }
+    }, 2000);
+
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, [pendingStatuses]);
+
+  // ==================== ФУНКЦИИ ====================
+
+  const showToast = useCallback((message: string, type: Toast['type'] = 'info') => {
+    const id = ++toastIdRef.current;
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 5000);
+  }, []);
+
+  // Загрузка всех SIM для статистики (один раз)
+  const loadAllSimsForStats = useCallback(async () => {
+    if (statsLoaded) return;
+    try {
+      // Загружаем все данные для статистики (limit=500)
+      const response = await GetSims('', 0, 500, '', '');
+      if (response.data) {
+        setAllSimsData(response.data);
+        setStatsLoaded(true);
+      }
+    } catch (e) {
+      console.error('Failed to load stats data:', e);
+    }
+  }, [statsLoaded]);
+
+  // Вычисляем статистику из загруженных данных
+  const stats = useMemo(() => {
+    if (allSimsData.length === 0) return null;
+    const byStatus: Record<string, number> = {};
+    const byRatePlan: Record<string, number> = {};
+    let activeSessions = 0;
+    
+    for (const sim of allSimsData) {
+      const status = sim.SIM_STATUS_CHANGE || 'Unknown';
+      byStatus[status] = (byStatus[status] || 0) + 1;
+      
+      const ratePlan = sim.RATE_PLAN_FULL_NAME || 'No Plan';
+      byRatePlan[ratePlan] = (byRatePlan[ratePlan] || 0) + 1;
+      
+      if (sim.IN_SESSION === 'Y' || sim.IN_SESSION === 'Yes') {
+        activeSessions++;
+      }
+    }
+    
+    return {
+      total: allSimsData.length,
+      by_status: byStatus,
+      by_rate_plan: byRatePlan,
+      active_sessions: activeSessions
+    };
+  }, [allSimsData]);
+
+  const handleLogin = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setLoading(true);
+    try {
+      const result = await Login(username, password);
+      if (result === "SUCCESS") {
+        // Сохраняем сессию
+        SessionManager.save('logged_in', username);
+        setIsLoggedIn(true);
+        showToast('Успешный вход в систему', 'success');
+      } else {
+        showToast("Ошибка входа: " + result, 'danger');
+      }
+    } catch (e) {
+      showToast("Ошибка: " + e, 'danger');
+    }
+    setLoading(false);
+  };
+
+  const handleLogout = () => {
+    SessionManager.clear();
+    setIsLoggedIn(false);
+    setUsername("");
+    setPassword("");
+    setSims([]);
+    setAllSimsData([]);
+    setStatsLoaded(false);
+    showToast('Вы вышли из системы', 'info');
+  };
+
+  const loadData = async (start: number, limit: number, searchTerm: string = search, sortBy: string = sort.by, sortDirection: string = sort.direction, status: string = statusFilter) => {
+    setLoading(true);
+    try {
+      const response = await GetSims(searchTerm, start, limit, sortBy, sortDirection, status);
+      setSims(response.data || []);
+      setTotal(response.count || 0);
+      setPagination({ start, limit });
+      setSort({ by: sortBy, direction: sortDirection });
+      setSelectedSims(new Set());
+    } catch (e) {
+      showToast("Ошибка загрузки: " + e, 'danger');
+    }
+    setLoading(false);
+  };
+
+  const loadJobs = useCallback(async (forceReload: boolean = false) => {
+    // Загружаем только если ещё не загружено или принудительно
+    if (jobsLoaded && !forceReload) return;
+    
+    setLoading(true);
+    try {
+      const jobId = jobFilters.jobId ? parseInt(jobFilters.jobId) : undefined;
+      // Загружаем все записи (limit=500)
+      const response = await GetJobs(1, 500, jobId, jobFilters.status || undefined);
+      if (response.success) {
+        setAllJobs(response.data || []);
+        setJobsLoaded(true);
+        setJobsPage(1); // Сброс на первую страницу
+      }
+    } catch (e) {
+      showToast("Ошибка загрузки jobs: " + e, 'danger');
+    }
+    setLoading(false);
+  }, [jobFilters, showToast, jobsLoaded]);
+
+  // Клиентская пагинация jobs
+  useEffect(() => {
+    const startIdx = (jobsPage - 1) * jobsPerPage;
+    const endIdx = startIdx + jobsPerPage;
+    setJobs(allJobs.slice(startIdx, endIdx));
+  }, [allJobs, jobsPage, jobsPerPage]);
+
+  // Общее количество страниц
+  const jobsTotalPages = Math.ceil(allJobs.length / jobsPerPage) || 1;
+
+  // Загрузка jobs при переключении на страницу
+  useEffect(() => {
+    if (isLoggedIn && navPage === 'jobs' && !jobsLoaded) {
+      loadJobs();
+    }
+  }, [isLoggedIn, navPage, jobsLoaded, loadJobs]);
+
+  // ==================== USER MANAGEMENT ====================
+  
+  const loadUsers = useCallback(async () => {
+    try {
+      const [usersData, rolesData] = await Promise.all([GetUsers(), GetRoles()]);
+      setUsers(usersData);
+      setRoles(rolesData);
+      setUsersLoaded(true);
+    } catch (e) {
+      showToast("Ошибка загрузки пользователей: " + e, 'danger');
+    }
+  }, [showToast]);
+
+  // Загрузка пользователей при переключении на страницу Admin
+  useEffect(() => {
+    if (isLoggedIn && navPage === 'admin' && !usersLoaded) {
+      loadUsers();
+    }
+  }, [isLoggedIn, navPage, usersLoaded, loadUsers]);
+
+  const openCreateUserModal = () => {
+    setEditingUser(null);
+    setUserForm({ username: '', email: '', password: '', role: 'Viewer' });
+    setShowUserModal(true);
+  };
+
+  const openEditUserModal = (user: User) => {
+    setEditingUser(user);
+    setUserForm({ username: user.username, email: user.email, password: '', role: user.role });
+    setShowUserModal(true);
+  };
+
+  const handleSaveUser = async () => {
+    if (!userForm.username || !userForm.email) {
+      showToast('Заполните все обязательные поля', 'warning');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      if (editingUser) {
+        // Обновление существующего пользователя
+        const result = await UpdateUser(editingUser.id, {
+          username: userForm.username,
+          email: userForm.email,
+          role: userForm.role
+        });
+        if (result.success) {
+          showToast('Пользователь обновлён', 'success');
+          setShowUserModal(false);
+          loadUsers();
+        } else {
+          showToast(result.error || 'Ошибка обновления', 'danger');
+        }
+      } else {
+        // Создание нового пользователя
+        if (!userForm.password) {
+          showToast('Укажите пароль для нового пользователя', 'warning');
+          setLoading(false);
+          return;
+        }
+        const result = await CreateUser(userForm);
+        if (result.success) {
+          showToast('Пользователь создан', 'success');
+          setShowUserModal(false);
+          loadUsers();
+        } else {
+          showToast(result.error || 'Ошибка создания', 'danger');
+        }
+      }
+    } catch (e) {
+      showToast('Ошибка: ' + e, 'danger');
+    }
+    setLoading(false);
+  };
+
+  const handleDeleteUser = async (user: User) => {
+    if (!window.confirm(`Удалить пользователя "${user.username}"?`)) return;
+    
+    setLoading(true);
+    const result = await DeleteUser(user.id);
+    if (result.success) {
+      showToast('Пользователь удалён', 'success');
+      loadUsers();
+    } else {
+      showToast(result.error || 'Ошибка удаления', 'danger');
+    }
+    setLoading(false);
+  };
+
+  const handleToggleUserActive = async (user: User) => {
+    setLoading(true);
+    const result = await UpdateUser(user.id, { is_active: !user.is_active });
+    if (result.success) {
+      showToast(user.is_active ? 'Пользователь деактивирован' : 'Пользователь активирован', 'success');
+      loadUsers();
+    } else {
+      showToast(result.error || 'Ошибка', 'danger');
+    }
+    setLoading(false);
+  };
+
+  const openResetPasswordModal = (userId: number) => {
+    setResetPasswordUserId(userId);
+    setNewPassword('');
+    setShowResetPasswordModal(true);
+  };
+
+  const handleResetPassword = async () => {
+    if (!newPassword || newPassword.length < 6) {
+      showToast('Пароль должен быть минимум 6 символов', 'warning');
+      return;
+    }
+    if (resetPasswordUserId === null) return;
+
+    setLoading(true);
+    const result = await ResetUserPassword(resetPasswordUserId, newPassword);
+    if (result.success) {
+      showToast('Пароль сброшен', 'success');
+      setShowResetPasswordModal(false);
+    } else {
+      showToast(result.error || 'Ошибка сброса пароля', 'danger');
+    }
+    setLoading(false);
+  };
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    loadData(0, pagination.limit, search);
+  };
+
+  const handleSort = (column: string) => {
+    const config = ALL_COLUMNS[column];
+    if (!config?.sortable) return;
+    
+    if (column !== "CLI" && column !== "MSISDN") {
+      showToast('Сортировка по этому полю на сервере недоступна', 'warning');
+      return;
+    }
+    
+    let direction = "ASC";
+    if (sort.by === column && sort.direction === "ASC") direction = "DESC";
+    loadData(0, pagination.limit, search, column, direction);
+  };
+
+  const handlePageChange = (newStart: number) => {
+    if (newStart >= 0 && newStart < total) {
+      loadData(newStart, pagination.limit);
+    }
+  };
+
+  const handleLimitChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newLimit = parseInt(e.target.value);
+    loadData(0, newLimit);
+  };
+
+  const toggleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      setSelectedSims(new Set(sims.map(s => s.MSISDN)));
+    } else {
+      setSelectedSims(new Set());
+    }
+  };
+
+  const toggleSelect = (msisdn: string) => {
+    const newSet = new Set(selectedSims);
+    if (newSet.has(msisdn)) newSet.delete(msisdn);
+    else newSet.add(msisdn);
+    setSelectedSims(newSet);
+  };
+
+  const updateStatusOptimistic = (msisdns: string[], targetStatus: string) => {
+    const now = Date.now();
+    const newPending = new Map(pendingStatuses);
+
+    msisdns.forEach(msisdn => {
+      newPending.set(msisdn, { msisdn, targetStatus, attempts: 0, startTime: now });
+    });
+
+    setPendingStatuses(newPending);
+    setSims(prev => prev.map(sim => {
+      if (msisdns.includes(sim.MSISDN)) {
+        return { ...sim, SIM_STATUS_CHANGE: targetStatus, _pending: true };
+      }
+      return sim;
+    }));
+  };
+
+  const handleBulkStatus = async (status: string) => {
+    if (selectedSims.size === 0) return;
+    if (!confirm(`Изменить статус ${selectedSims.size} SIM на ${status}?`)) return;
+    
+    const msisdns = Array.from(selectedSims);
+    updateStatusOptimistic(msisdns, status);
+    showToast(`Запрос на изменение статуса ${msisdns.length} SIM...`, 'info');
+    
+    const result = await ChangeStatus(msisdns, status);
+    
+    if (result === "SUCCESS") {
+      showToast(`✓ Запрос отправлен. Ожидание подтверждения...`, 'success');
+      setSelectedSims(new Set());
+    } else {
+      showToast("Ошибка: " + result, 'danger');
+      loadData(pagination.start, pagination.limit);
+      const newPending = new Map(pendingStatuses);
+      msisdns.forEach(m => newPending.delete(m));
+      setPendingStatuses(newPending);
+    }
+  };
+
+  const handleSingleStatus = async (status: string) => {
+    if (!selectedSim) return;
+    if (!confirm(`Изменить статус ${selectedSim.MSISDN} на ${status}?`)) return;
+    
+    const msisdn = selectedSim.MSISDN;
+    updateStatusOptimistic([msisdn], status);
+    setSelectedSim({ ...selectedSim, SIM_STATUS_CHANGE: status, _pending: true });
+    showToast(`Запрос на изменение статуса ${msisdn}...`, 'info');
+    
+    const result = await ChangeStatus([msisdn], status);
+    
+    if (result === "SUCCESS") {
+      showToast(`✓ Запрос отправлен. Ожидание подтверждения...`, 'success');
+    } else {
+      showToast("Ошибка: " + result, 'danger');
+      loadData(pagination.start, pagination.limit);
+      setPendingStatuses(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(msisdn);
+        return newMap;
+      });
+    }
+  };
+
+  const startEdit = () => {
+    setEditValues({
+      label1: selectedSim.CUSTOMER_LABEL_1 || '',
+      label2: selectedSim.CUSTOMER_LABEL_2 || '',
+      label3: selectedSim.CUSTOMER_LABEL_3 || ''
+    });
+    setEditMode(true);
+  };
+
+  const saveEdit = async () => {
+    setLoading(true);
+    try {
+      if (editValues.label1 !== (selectedSim.CUSTOMER_LABEL_1 || '')) {
+        await UpdateSim(selectedSim.MSISDN, "CUSTOMER_LABEL_1", editValues.label1);
+      }
+      if (editValues.label2 !== (selectedSim.CUSTOMER_LABEL_2 || '')) {
+        await UpdateSim(selectedSim.MSISDN, "CUSTOMER_LABEL_2", editValues.label2);
+      }
+      if (editValues.label3 !== (selectedSim.CUSTOMER_LABEL_3 || '')) {
+        await UpdateSim(selectedSim.MSISDN, "CUSTOMER_LABEL_3", editValues.label3);
+      }
+      
+      showToast('Labels обновлены успешно', 'success');
+      setEditMode(false);
+      loadData(pagination.start, pagination.limit);
+      setSelectedSim(null);
+    } catch(e) {
+      showToast("Ошибка обновления: " + e, 'danger');
+    }
+    setLoading(false);
+  };
+
+  const handleHeaderContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const x = Math.min(e.clientX, window.innerWidth - 250);
+    const y = Math.min(e.clientY, window.innerHeight - 400);
+    setColumnMenuPos({ x, y });
+    setShowColumnMenu(true);
+  };
+
+  const toggleColumn = (column: string) => {
+    setVisibleColumns(prev => {
+      if (prev.includes(column)) {
+        if (prev.length === 1) {
+          showToast('Должна быть хотя бы одна видимая колонка', 'warning');
+          return prev;
+        }
+        return prev.filter(c => c !== column);
+      }
+      return [...prev, column];
+    });
+  };
+
+  const resetColumns = () => {
+    const defaultOrder = Object.keys(ALL_COLUMNS);
+    const defaultVisible = Object.keys(ALL_COLUMNS).filter(k => ALL_COLUMNS[k].default);
+    setColumnOrder(defaultOrder);
+    setVisibleColumns(defaultVisible);
+    setShowColumnMenu(false);
+    showToast('Колонки сброшены к настройкам по умолчанию', 'info');
+  };
+
+  // Drag & Drop handlers для колонок
+  const handleColumnDragStart = (e: React.DragEvent, column: string) => {
+    setDraggedColumn(column);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleColumnDragOver = (e: React.DragEvent, targetColumn: string) => {
+    e.preventDefault();
+    if (!draggedColumn || draggedColumn === targetColumn) return;
+    
+    setColumnOrder(prev => {
+      const newOrder = [...prev];
+      const dragIdx = newOrder.indexOf(draggedColumn);
+      const targetIdx = newOrder.indexOf(targetColumn);
+      
+      if (dragIdx === -1 || targetIdx === -1) return prev;
+      
+      newOrder.splice(dragIdx, 1);
+      newOrder.splice(targetIdx, 0, draggedColumn);
+      return newOrder;
+    });
+  };
+
+  const handleColumnDragEnd = () => {
+    setDraggedColumn(null);
+  };
+
+  // Вычисляем видимые колонки в правильном порядке
+  const orderedVisibleColumns = columnOrder.filter(col => visibleColumns.includes(col));
+
+  // Перемещение колонки вверх/вниз в меню
+  const moveColumn = (column: string, direction: 'up' | 'down') => {
+    setColumnOrder(prev => {
+      const idx = prev.indexOf(column);
+      if (idx === -1) return prev;
+      
+      const newIdx = direction === 'up' ? idx - 1 : idx + 1;
+      if (newIdx < 0 || newIdx >= prev.length) return prev;
+      
+      const newOrder = [...prev];
+      [newOrder[idx], newOrder[newIdx]] = [newOrder[newIdx], newOrder[idx]];
+      return newOrder;
+    });
+  };
+
+  const getCellValue = (sim: any, column: string) => {
+    const config = ALL_COLUMNS[column];
+    if (!config) return '-';
+    
+    const value = sim[config.field];
+    
+    if (column === 'SIM_STATUS_CHANGE') {
+      return getStatusBadge(value, sim._pending);
+    }
+    
+    return value || '-';
+  };
+
+  // Вычисляемые значения
+  const currentListPage = Math.floor(pagination.start / pagination.limit) + 1;
+  const totalPages = Math.ceil(total / pagination.limit);
+
+  // ==================== РЕНДЕР ====================
+
+  // Загрузка сессии
+  if (isCheckingSession) {
+    return (
+      <div className="d-flex align-items-center justify-content-center vh-100 bg-dark">
+        <div className="text-center">
+          <div className="spinner-border text-primary mb-3" role="status">
+            <span className="visually-hidden">Loading...</span>
+          </div>
+          <p className="text-muted">Проверка сессии...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Форма входа
+  if (!isLoggedIn) {
+    return (
+      <div className="d-flex align-items-center justify-content-center vh-100 bg-dark">
+        <div className="card p-4 shadow-lg" style={{width: '400px'}}>
+          <div className="card-body">
+            <h2 className="text-center mb-4 text-primary">EyesOn Login</h2>
+            <form onSubmit={handleLogin}>
+              <div className="mb-3">
+                <label className="form-label text-light">Username</label>
+                <input 
+                  type="text" 
+                  className="form-control" 
+                  value={username} 
+                  onChange={(e) => setUsername(e.target.value)} 
+                  required 
+                  autoFocus
+                />
+              </div>
+              <div className="mb-3">
+                <label className="form-label text-light">Password</label>
+                <input 
+                  type="password" 
+                  className="form-control" 
+                  value={password} 
+                  onChange={(e) => setPassword(e.target.value)} 
+                  required 
+                />
+              </div>
+              <button type="submit" className="btn btn-primary w-100" disabled={loading}>
+                {loading ? "Вход..." : "Войти"}
+              </button>
+            </form>
+          </div>
+        </div>
+        
+        <ToastContainer toasts={toasts} />
+      </div>
+    );
+  }
+
+  // Главный интерфейс
+  return (
+    <div className="container-fluid py-4">
+      {/* Навигация */}
+      <nav className="navbar navbar-expand navbar-dark bg-dark mb-4 rounded">
+        <div className="container-fluid">
+          <span className="navbar-brand">EyesOn</span>
+          <ul className="navbar-nav">
+            <li className="nav-item">
+              <button 
+                className={`nav-link btn btn-link ${navPage === 'sims' ? 'active fw-bold' : ''}`}
+                onClick={() => setNavPage('sims')}
+              >
+                📱 SIM Cards
+              </button>
+            </li>
+            <li className="nav-item">
+              <button 
+                className={`nav-link btn btn-link ${navPage === 'jobs' ? 'active fw-bold' : ''}`}
+                onClick={() => setNavPage('jobs')}
+              >
+                📋 Jobs
+              </button>
+            </li>
+            <li className="nav-item">
+              <button 
+                className={`nav-link btn btn-link ${navPage === 'stats' ? 'active fw-bold' : ''}`}
+                onClick={() => setNavPage('stats')}
+              >
+                📊 Statistics
+              </button>
+            </li>
+            <li className="nav-item">
+              <button 
+                className={`nav-link btn btn-link ${navPage === 'admin' ? 'active fw-bold' : ''}`}
+                onClick={() => setNavPage('admin')}
+              >
+                ⚙️ Admin
+              </button>
+            </li>
+            <li className="nav-item">
+              <button 
+                className={`nav-link btn btn-link ${navPage === 'profile' ? 'active fw-bold' : ''}`}
+                onClick={() => setNavPage('profile')}
+              >
+                👤 Profile
+              </button>
+            </li>
+          </ul>
+          <div className="d-flex gap-2 align-items-center">
+            <span className="badge bg-secondary">Total: {stats?.total || total}</span>
+            <button className="btn btn-outline-light btn-sm" onClick={() => { 
+              if (navPage === 'sims') { 
+                loadData(pagination.start, pagination.limit);
+                // Перезагружаем статистику через 2 сек
+                setStatsLoaded(false);
+                setTimeout(() => loadAllSimsForStats(), 2000);
+              }
+              else { loadJobs(true); }  // force reload
+            }}>
+              {loading ? <span className="spinner-border spinner-border-sm"></span> : 'Refresh'}
+            </button>
+            <button className="btn btn-outline-danger btn-sm" onClick={handleLogout} title="Выйти">
+              🚪
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      {/* Страница SIM */}
+      {navPage === 'sims' && (
+        <>
+          {/* Заголовок */}
+          <div className="d-flex justify-content-between align-items-center mb-4">
+            <h1 className="h3 mb-0 text-white">SIM Management</h1>
+          </div>
+
+          {/* Статистика */}
+          {stats && (
+            <div className="row g-3 mb-4">
+              <div className="col-md-3">
+                <div className="card bg-dark border-secondary h-100">
+                  <div className="card-body">
+                    <h6 className="card-subtitle mb-2 text-muted">Activated</h6>
+                    <h3 className="card-title text-success">{stats.by_status?.Activated || 0}</h3>
+                  </div>
+                </div>
+              </div>
+              <div className="col-md-3">
+                <div className="card bg-dark border-secondary h-100">
+                  <div className="card-body">
+                    <h6 className="card-subtitle mb-2 text-muted">Suspended</h6>
+                    <h3 className="card-title text-warning">{stats.by_status?.Suspended || 0}</h3>
+                  </div>
+                </div>
+              </div>
+              <div className="col-md-3">
+                <div className="card bg-dark border-secondary h-100">
+                  <div className="card-body">
+                    <h6 className="card-subtitle mb-2 text-muted">Terminated</h6>
+                    <h3 className="card-title text-danger">{stats.by_status?.Terminated || 0}</h3>
+                  </div>
+                </div>
+              </div>
+              <div className="col-md-3">
+                <div className="card bg-dark border-secondary h-100">
+                  <div className="card-body">
+                    <h6 className="card-subtitle mb-2 text-muted">In Session</h6>
+                    <h3 className="card-title text-info">{stats.active_sessions || 0}</h3>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Массовые действия */}
+          {selectedSims.size > 0 && (
+            <div className="card mb-3 border-primary bg-dark">
+              <div className="card-body py-2 d-flex justify-content-between align-items-center">
+                <span className="text-primary fw-bold">{selectedSims.size} Selected</span>
+                <div className="btn-group btn-group-sm">
+                  <button className="btn btn-outline-success" onClick={() => handleBulkStatus('Activated')}>Activate</button>
+                  <button className="btn btn-outline-warning" onClick={() => handleBulkStatus('Suspended')}>Suspend</button>
+                  <button className="btn btn-outline-danger" onClick={() => handleBulkStatus('Terminated')}>Terminate</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Поиск и фильтры */}
+          <div className="card mb-4">
+            <div className="card-body">
+              <form onSubmit={handleSearch} className="row g-3 align-items-center">
+                <div className="col-md-6 col-lg-4 flex-grow-1">
+                  <div className="input-group">
+                    <span className="input-group-text bg-dark border-secondary text-light">🔍</span>
+                    <input 
+                      type="text" 
+                      className="form-control" 
+                      placeholder="Search by CLI, MSISDN, Label..." 
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="col-auto">
+                  <select 
+                    className="form-select"
+                    value={statusFilter}
+                    onChange={(e) => {
+                      setStatusFilter(e.target.value);
+                      loadData(0, pagination.limit, search, sort.by, sort.direction, e.target.value);
+                    }}
+                  >
+                    <option value="">All Statuses</option>
+                    <option value="Activated">🟢 Activated</option>
+                    <option value="Suspended">🟡 Suspended</option>
+                    <option value="Terminated">🔴 Terminated</option>
+                  </select>
+                </div>
+                <div className="col-auto">
+                  <button type="submit" className="btn btn-primary" disabled={loading}>
+                    {loading ? "Searching..." : "Search"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          {/* Таблица */}
+          <div className="card mb-4">
+            <div className="table-responsive">
+              <table className="table table-dark table-hover mb-0">
+                <thead onContextMenu={handleHeaderContextMenu}>
+                  <tr>
+                    <th style={{width: '40px'}}>
+                      <input type="checkbox" className="form-check-input" 
+                        checked={sims.length > 0 && selectedSims.size === sims.length}
+                        onChange={toggleSelectAll}
+                      />
+                    </th>
+                    {orderedVisibleColumns.map(col => {
+                      const config = ALL_COLUMNS[col];
+                      if (!config) return null;
+                      const isSortable = config.sortable && (col === 'CLI' || col === 'MSISDN');
+                      return (
+                        <th 
+                          key={col}
+                          draggable
+                          onDragStart={(e) => handleColumnDragStart(e, col)}
+                          onDragOver={(e) => handleColumnDragOver(e, col)}
+                          onDragEnd={handleColumnDragEnd}
+                          onClick={() => isSortable && handleSort(col)} 
+                          style={{ 
+                            cursor: isSortable ? 'pointer' : 'grab',
+                            opacity: draggedColumn === col ? 0.5 : 1,
+                            background: draggedColumn === col ? '#495057' : undefined
+                          }}
+                          title={isSortable ? 'Click to sort, drag to reorder' : 'Drag to reorder, right-click for settings'}
+                        >
+                          {config.name}
+                          {sort.by === col && (
+                            <span className="ms-1">{sort.direction === 'ASC' ? '▲' : '▼'}</span>
+                          )}
+                        </th>
+                      );
+                    })}
+                    <th className="text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sims.length > 0 ? (
+                    sims.map((sim: any) => (
+                      <tr 
+                        key={sim.MSISDN} 
+                        onClick={() => setSelectedSim(sim)}
+                        className={sim._pending ? 'table-warning' : ''}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <td onClick={(e) => e.stopPropagation()}>
+                          <input type="checkbox" className="form-check-input"
+                            checked={selectedSims.has(sim.MSISDN)}
+                            onChange={() => toggleSelect(sim.MSISDN)}
+                          />
+                        </td>
+                        {orderedVisibleColumns.map(col => (
+                          <td key={col}>{getCellValue(sim, col)}</td>
+                        ))}
+                        <td className="text-center" onClick={(e) => e.stopPropagation()}>
+                          <button 
+                            className="btn btn-sm btn-outline-info"
+                            onClick={() => setSelectedSim(sim)}
+                            title="View Details"
+                          >
+                            👁
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={orderedVisibleColumns.length + 2} className="text-center py-4 text-muted">
+                        {loading ? 'Loading...' : 'No records found'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            
+            {/* Пагинация */}
+            <div className="card-footer d-flex justify-content-between align-items-center py-3">
+              <div className="d-flex align-items-center gap-2">
+                <span className="text-muted small">Show:</span>
+                <select className="form-select form-select-sm" style={{width: '70px'}} value={pagination.limit} onChange={handleLimitChange}>
+                  <option value="10">10</option>
+                  <option value="25">25</option>
+                  <option value="100">100</option>
+                  <option value="500">500</option>
+                </select>
+              </div>
+              
+              <nav>
+                <ul className="pagination pagination-sm mb-0">
+                  <li className={`page-item ${pagination.start === 0 ? 'disabled' : ''}`}>
+                    <button className="page-link" onClick={() => handlePageChange(pagination.start - pagination.limit)}>Previous</button>
+                  </li>
+                  <li className="page-item disabled">
+                    <span className="page-link">Page {currentListPage} of {totalPages || 1}</span>
+                  </li>
+                  <li className={`page-item ${pagination.start + pagination.limit >= total ? 'disabled' : ''}`}>
+                    <button className="page-link" onClick={() => handlePageChange(pagination.start + pagination.limit)}>Next</button>
+                  </li>
+                </ul>
+              </nav>
+            </div>
+          </div>
+
+          {/* Меню колонок */}
+          {showColumnMenu && (
+            <div 
+              ref={columnMenuRef}
+              className="dropdown-menu show"
+              style={{
+                position: 'fixed',
+                left: columnMenuPos.x,
+                top: columnMenuPos.y,
+                zIndex: 9999,
+                maxHeight: '500px',
+                overflowY: 'auto',
+                minWidth: '280px'
+              }}
+            >
+              <h6 className="dropdown-header">⚙️ Column Settings</h6>
+              <div className="px-3 py-1 text-muted small">
+                <i>Drag headers to reorder • Check to show/hide</i>
+              </div>
+              <div className="dropdown-divider"></div>
+              <div className="px-2">
+                {columnOrder.map((key, index) => {
+                  const config = ALL_COLUMNS[key];
+                  if (!config) return null;
+                  return (
+                    <div 
+                      className="d-flex align-items-center py-1 px-1 rounded"
+                      key={key}
+                      style={{ 
+                        background: visibleColumns.includes(key) ? 'rgba(13, 110, 253, 0.1)' : 'transparent'
+                      }}
+                    >
+                      <input 
+                        className="form-check-input me-2" 
+                        type="checkbox"
+                        id={`col_${key}`}
+                        checked={visibleColumns.includes(key)}
+                        onChange={() => toggleColumn(key)}
+                      />
+                      <label 
+                        className="form-check-label flex-grow-1" 
+                        htmlFor={`col_${key}`}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        {config.name}
+                      </label>
+                      <div className="btn-group btn-group-sm ms-2">
+                        <button 
+                          className="btn btn-outline-secondary btn-sm py-0 px-1"
+                          onClick={() => moveColumn(key, 'up')}
+                          disabled={index === 0}
+                          title="Move Up"
+                        >
+                          ▲
+                        </button>
+                        <button 
+                          className="btn btn-outline-secondary btn-sm py-0 px-1"
+                          onClick={() => moveColumn(key, 'down')}
+                          disabled={index === columnOrder.length - 1}
+                          title="Move Down"
+                        >
+                          ▼
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="dropdown-divider"></div>
+              <div className="px-3 py-2">
+                <button className="btn btn-sm btn-outline-secondary w-100" onClick={resetColumns}>
+                  🔄 Reset to Default
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Модалка деталей SIM */}
+          {selectedSim && (
+            <SimDetailModal
+              sim={selectedSim}
+              editMode={editMode}
+              editValues={editValues}
+              loading={loading}
+              onClose={() => { setSelectedSim(null); setEditMode(false); }}
+              onEditStart={startEdit}
+              onEditSave={saveEdit}
+              onEditValueChange={(key, value) => setEditValues({...editValues, [key]: value})}
+              onStatusChange={handleSingleStatus}
+            />
+          )}
+        </>
+      )}
+
+      {/* Страница Jobs */}
+      {navPage === 'jobs' && (
+        <div>
+          <div className="d-flex justify-content-between align-items-center mb-4">
+            <h1 className="h3 mb-0 text-white">API Provisioning Jobs</h1>
+          </div>
+
+          {/* Фильтры */}
+          <div className="card mb-4">
+            <div className="card-body">
+              <div className="row g-3 align-items-end">
+                <div className="col-md-3">
+                  <label className="form-label text-muted">Job ID</label>
+                  <input 
+                    type="number" 
+                    className="form-control" 
+                    placeholder="Enter Job ID"
+                    value={jobFilters.jobId}
+                    onChange={(e) => setJobFilters({...jobFilters, jobId: e.target.value})}
+                  />
+                </div>
+                <div className="col-md-3">
+                  <label className="form-label text-muted">Status</label>
+                  <select 
+                    className="form-select"
+                    value={jobFilters.status}
+                    onChange={(e) => setJobFilters({...jobFilters, status: e.target.value})}
+                  >
+                    <option value="">All Statuses</option>
+                    <option value="PENDING">Pending</option>
+                    <option value="IN_PROGRESS">In Progress</option>
+                    <option value="SUCCESS">Completed</option>
+                    <option value="FAILED">Failed</option>
+                  </select>
+                </div>
+                <div className="col-md-3">
+                  <button className="btn btn-primary" onClick={() => { setJobsLoaded(false); loadJobs(true); }}>
+                    🔍 Apply Filters
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Таблица Jobs */}
+          <div className="card">
+            <div className="table-responsive">
+              <table className="table table-dark table-hover mb-0">
+                <thead>
+                  <tr>
+                    <th>Job ID</th>
+                    <th>Action Type</th>
+                    <th>Change</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Last Updated</th>
+                    <th>Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {jobs.length > 0 ? (
+                    jobs.map((job: any) => {
+                      const actions = job.actions || [];
+                      const firstAction = actions.length > 0 ? actions[0] : {};
+                      const actionType = firstAction.requestType || job.actionType || '-';
+                      const initialValue = firstAction.initialValue || '';
+                      const targetValue = firstAction.targetValue || job.targetValue || '-';
+                      // Status from first action or fallback
+                      const status = firstAction.status || job.jobStatus || job.status || 'PENDING';
+                      // Message from first action
+                      const message = firstAction.errorDesc || '';
+                      // Change display: initial -> target
+                      const changeDisplay = initialValue ? `${initialValue} → ${targetValue}` : targetValue;
+
+                      return (
+                        <tr key={job.jobId}>
+                          <td><strong>{job.jobId}</strong></td>
+                          <td><small>{actionType.replace(/_/g, ' ')}</small></td>
+                          <td><code className="text-info">{changeDisplay}</code></td>
+                          <td>{getJobStatusBadge(status)}</td>
+                          <td><small>{formatDate(job.requestTime)}</small></td>
+                          <td><small>{formatDate(job.lastActionTime)}</small></td>
+                          <td>
+                            <button 
+                              className="btn btn-outline-info btn-sm py-0 px-1"
+                              onClick={() => {
+                                const details = JSON.stringify(job, null, 2);
+                                alert(`Job #${job.jobId} Details:\n\n${details}`);
+                              }}
+                              title="View full job details"
+                            >
+                              👁 {actions.length > 1 ? `(${actions.length})` : 'View'}
+                            </button>
+                            {message && message !== 'Success' && (
+                              <small className="ms-2 text-warning">{message}</small>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={7} className="text-center py-4 text-muted">
+                        {loading ? 'Loading...' : 'No jobs found'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Пагинация */}
+            <div className="card-footer d-flex justify-content-between align-items-center py-3">
+              <div className="d-flex align-items-center gap-3">
+                <span className="text-muted small">
+                  Записи {(jobsPage - 1) * jobsPerPage + 1}-{Math.min(jobsPage * jobsPerPage, allJobs.length)} из <strong>{allJobs.length}</strong>
+                </span>
+                <select 
+                  className="form-select form-select-sm" 
+                  style={{width: 'auto'}}
+                  value={jobsPerPage}
+                  onChange={(e) => { setJobsPerPage(parseInt(e.target.value)); setJobsPage(1); }}
+                >
+                  <option value="10">10 / стр</option>
+                  <option value="25">25 / стр</option>
+                  <option value="50">50 / стр</option>
+                  <option value="100">100 / стр</option>
+                </select>
+              </div>
+              <nav>
+                <ul className="pagination pagination-sm mb-0">
+                  <li className={`page-item ${jobsPage <= 1 ? 'disabled' : ''}`}>
+                    <button className="page-link" onClick={() => setJobsPage(1)} disabled={jobsPage <= 1}>«</button>
+                  </li>
+                  <li className={`page-item ${jobsPage <= 1 ? 'disabled' : ''}`}>
+                    <button className="page-link" onClick={() => setJobsPage(p => p - 1)} disabled={jobsPage <= 1}>‹</button>
+                  </li>
+                  {/* Номера страниц */}
+                  {Array.from({ length: Math.min(5, jobsTotalPages) }, (_, i) => {
+                    let pageNum;
+                    if (jobsTotalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (jobsPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (jobsPage >= jobsTotalPages - 2) {
+                      pageNum = jobsTotalPages - 4 + i;
+                    } else {
+                      pageNum = jobsPage - 2 + i;
+                    }
+                    return (
+                      <li key={pageNum} className={`page-item ${jobsPage === pageNum ? 'active' : ''}`}>
+                        <button className="page-link" onClick={() => setJobsPage(pageNum)}>{pageNum}</button>
+                      </li>
+                    );
+                  })}
+                  <li className={`page-item ${jobsPage >= jobsTotalPages ? 'disabled' : ''}`}>
+                    <button className="page-link" onClick={() => setJobsPage(p => p + 1)} disabled={jobsPage >= jobsTotalPages}>›</button>
+                  </li>
+                  <li className={`page-item ${jobsPage >= jobsTotalPages ? 'disabled' : ''}`}>
+                    <button className="page-link" onClick={() => setJobsPage(jobsTotalPages)} disabled={jobsPage >= jobsTotalPages}>»</button>
+                  </li>
+                </ul>
+              </nav>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Страница Statistics */}
+      {navPage === 'stats' && (
+        <div>
+          <div className="d-flex justify-content-between align-items-center mb-4">
+            <h1 className="h3 mb-0 text-white">📊 Statistics Dashboard</h1>
+            <button className="btn btn-outline-light btn-sm" onClick={() => { setStatsLoaded(false); loadAllSimsForStats(); }}>
+              🔄 Refresh Stats
+            </button>
+          </div>
+
+          {/* Summary Cards */}
+          <div className="row g-4 mb-4">
+            <div className="col-md-3">
+              <div className="card bg-primary text-white h-100">
+                <div className="card-body text-center">
+                  <h6 className="card-subtitle mb-2 opacity-75">Total SIM Cards</h6>
+                  <h2 className="card-title display-4">{stats?.total || 0}</h2>
+                </div>
+              </div>
+            </div>
+            <div className="col-md-3">
+              <div className="card bg-success text-white h-100">
+                <div className="card-body text-center">
+                  <h6 className="card-subtitle mb-2 opacity-75">Activated</h6>
+                  <h2 className="card-title display-4">{stats?.by_status?.Activated || 0}</h2>
+                </div>
+              </div>
+            </div>
+            <div className="col-md-3">
+              <div className="card bg-warning text-dark h-100">
+                <div className="card-body text-center">
+                  <h6 className="card-subtitle mb-2 opacity-75">Suspended</h6>
+                  <h2 className="card-title display-4">{stats?.by_status?.Suspended || 0}</h2>
+                </div>
+              </div>
+            </div>
+            <div className="col-md-3">
+              <div className="card bg-danger text-white h-100">
+                <div className="card-body text-center">
+                  <h6 className="card-subtitle mb-2 opacity-75">Terminated</h6>
+                  <h2 className="card-title display-4">{stats?.by_status?.Terminated || 0}</h2>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Status Distribution & Usage Stats */}
+          <div className="row g-4 mb-4">
+            <div className="col-md-6">
+              <div className="card bg-dark border-secondary h-100">
+                <div className="card-header border-secondary">
+                  <h5 className="mb-0">📈 Status Distribution</h5>
+                </div>
+                <div className="card-body">
+                  {stats?.by_status && Object.entries(stats.by_status).map(([status, count]: [string, any]) => {
+                    const percentage = stats.total > 0 ? ((count / stats.total) * 100).toFixed(1) : '0';
+                    const color = status === 'Activated' ? 'success' : status === 'Suspended' ? 'warning' : status === 'Terminated' ? 'danger' : 'secondary';
+                    return (
+                      <div key={status} className="mb-3">
+                        <div className="d-flex justify-content-between mb-1">
+                          <span>{status}</span>
+                          <span className="text-muted">{count} ({percentage}%)</span>
+                        </div>
+                        <div className="progress" style={{height: '8px'}}>
+                          <div className={`progress-bar bg-${color}`} style={{width: `${percentage}%`}}></div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="col-md-6">
+              <div className="card bg-dark border-secondary h-100">
+                <div className="card-header border-secondary">
+                  <h5 className="mb-0">🌐 Top Rate Plans</h5>
+                </div>
+                <div className="card-body">
+                  {stats?.by_rate_plan && Object.entries(stats.by_rate_plan)
+                    .sort((a: any, b: any) => b[1] - a[1])
+                    .slice(0, 5)
+                    .map(([plan, count]: [string, any]) => (
+                      <div key={plan} className="d-flex justify-content-between py-2 border-bottom border-secondary">
+                        <span className="text-truncate" style={{maxWidth: '70%'}}>{plan || 'No Plan'}</span>
+                        <span className="badge bg-info">{count}</span>
+                      </div>
+                    ))
+                  }
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Jobs Overview */}
+          <div className="row g-4">
+            <div className="col-12">
+              <div className="card bg-dark border-secondary">
+                <div className="card-header border-secondary d-flex justify-content-between align-items-center">
+                  <h5 className="mb-0">📋 Recent Jobs Activity</h5>
+                  <button className="btn btn-outline-info btn-sm" onClick={() => setNavPage('jobs')}>
+                    View All Jobs →
+                  </button>
+                </div>
+                <div className="card-body">
+                  <div className="row text-center">
+                    <div className="col-md-3">
+                      <h4 className="text-info">{allJobs.length}</h4>
+                      <small className="text-muted">Total Jobs</small>
+                    </div>
+                    <div className="col-md-3">
+                      <h4 className="text-warning">{allJobs.filter((j: any) => j.jobStatus === 'PENDING' || (j.actions && j.actions[0]?.status === 'PENDING')).length}</h4>
+                      <small className="text-muted">Pending</small>
+                    </div>
+                    <div className="col-md-3">
+                      <h4 className="text-success">{allJobs.filter((j: any) => j.jobStatus === 'SUCCESS' || (j.actions && j.actions[0]?.status === 'SUCCESS')).length}</h4>
+                      <small className="text-muted">Completed</small>
+                    </div>
+                    <div className="col-md-3">
+                      <h4 className="text-danger">{allJobs.filter((j: any) => j.jobStatus === 'FAILED' || (j.actions && j.actions[0]?.status === 'FAILED')).length}</h4>
+                      <small className="text-muted">Failed</small>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Страница Admin */}
+      {navPage === 'admin' && (
+        <div>
+          <div className="d-flex justify-content-between align-items-center mb-4">
+            <h1 className="h3 mb-0 text-white">⚙️ Admin Panel</h1>
+            <button className="btn btn-outline-light btn-sm" onClick={() => { setUsersLoaded(false); loadUsers(); }}>
+              🔄 Refresh
+            </button>
+          </div>
+
+          {/* User Management Section */}
+          <div className="card bg-dark border-secondary mb-4">
+            <div className="card-header border-secondary d-flex justify-content-between align-items-center">
+              <h5 className="mb-0">👥 User Management</h5>
+              <button className="btn btn-success btn-sm" onClick={openCreateUserModal}>
+                ➕ Add User
+              </button>
+            </div>
+            <div className="card-body p-0">
+              <div className="table-responsive">
+                <table className="table table-dark table-hover mb-0">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Username</th>
+                      <th>Email</th>
+                      <th>Role</th>
+                      <th>Status</th>
+                      <th>Created</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {users.length > 0 ? users.map(user => (
+                      <tr key={user.id}>
+                        <td>{user.id}</td>
+                        <td><strong>{user.username}</strong></td>
+                        <td>{user.email}</td>
+                        <td>
+                          <span className={`badge ${user.role === 'Administrator' ? 'bg-danger' : user.role === 'Moderator' ? 'bg-warning' : 'bg-secondary'}`}>
+                            {user.role}
+                          </span>
+                        </td>
+                        <td>
+                          <span className={`badge ${user.is_active ? 'bg-success' : 'bg-secondary'}`}>
+                            {user.is_active ? 'Active' : 'Inactive'}
+                          </span>
+                        </td>
+                        <td><small>{new Date(user.created_at).toLocaleDateString()}</small></td>
+                        <td>
+                          <div className="btn-group btn-group-sm">
+                            <button className="btn btn-outline-primary py-0" onClick={() => openEditUserModal(user)} title="Edit">
+                              ✏️
+                            </button>
+                            <button className="btn btn-outline-warning py-0" onClick={() => openResetPasswordModal(user.id)} title="Reset Password">
+                              🔑
+                            </button>
+                            <button 
+                              className={`btn ${user.is_active ? 'btn-outline-secondary' : 'btn-outline-success'} py-0`}
+                              onClick={() => handleToggleUserActive(user)}
+                              title={user.is_active ? 'Deactivate' : 'Activate'}
+                            >
+                              {user.is_active ? '🚫' : '✅'}
+                            </button>
+                            <button className="btn btn-outline-danger py-0" onClick={() => handleDeleteUser(user)} title="Delete">
+                              🗑️
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )) : (
+                      <tr>
+                        <td colSpan={7} className="text-center py-4 text-muted">
+                          {loading ? 'Loading...' : 'No users found'}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div className="card-footer border-secondary">
+              <small className="text-muted">Total users: {users.length} | Active: {users.filter(u => u.is_active).length}</small>
+            </div>
+          </div>
+
+          <div className="row g-4">
+            {/* System Settings Card */}
+            <div className="col-md-6">
+              <div className="card bg-dark border-secondary h-100">
+                <div className="card-header border-secondary">
+                  <h5 className="mb-0">🔧 System Settings</h5>
+                </div>
+                <div className="card-body">
+                  <ul className="list-unstyled">
+                    <li className="py-2 border-bottom border-secondary">
+                      <strong>API Endpoint:</strong> <code className="text-info">{window.location.origin}</code>
+                    </li>
+                    <li className="py-2 border-bottom border-secondary">
+                      <strong>Session Timeout:</strong> <span className="text-muted">24 hours</span>
+                    </li>
+                    <li className="py-2">
+                      <strong>Available Roles:</strong> {roles.map(r => (
+                        <span key={r.id} className="badge bg-secondary me-1">{r.name}</span>
+                      ))}
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            {/* API Status Card */}
+            <div className="col-md-6">
+              <div className="card bg-dark border-secondary h-100">
+                <div className="card-header border-secondary">
+                  <h5 className="mb-0">🌐 API Status</h5>
+                </div>
+                <div className="card-body">
+                  <ul className="list-unstyled">
+                    <li className="py-2 border-bottom border-secondary d-flex justify-content-between">
+                      <span>EyesOn API</span>
+                      <span className="badge bg-success">● Online</span>
+                    </li>
+                    <li className="py-2 border-bottom border-secondary d-flex justify-content-between">
+                      <span>Go Backend</span>
+                      <span className="badge bg-success">● Online</span>
+                    </li>
+                    <li className="py-2 d-flex justify-content-between">
+                      <span>Database</span>
+                      <span className="badge bg-success">● Online</span>
+                    </li>
+                  </ul>
+                  <div className="d-grid gap-2">
+                    <button className="btn btn-outline-success btn-sm" onClick={() => loadData(pagination.start, pagination.limit)}>
+                      Test Connection
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* User Modal */}
+      {showUserModal && (
+        <div className="modal show d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
+          <div className="modal-dialog">
+            <div className="modal-content bg-dark text-white">
+              <div className="modal-header border-secondary">
+                <h5 className="modal-title">{editingUser ? '✏️ Edit User' : '➕ Create User'}</h5>
+                <button type="button" className="btn-close btn-close-white" onClick={() => setShowUserModal(false)}></button>
+              </div>
+              <div className="modal-body">
+                <div className="mb-3">
+                  <label className="form-label">Username *</label>
+                  <input 
+                    type="text" 
+                    className="form-control bg-dark text-white border-secondary" 
+                    value={userForm.username}
+                    onChange={e => setUserForm({...userForm, username: e.target.value})}
+                  />
+                </div>
+                <div className="mb-3">
+                  <label className="form-label">Email *</label>
+                  <input 
+                    type="email" 
+                    className="form-control bg-dark text-white border-secondary" 
+                    value={userForm.email}
+                    onChange={e => setUserForm({...userForm, email: e.target.value})}
+                  />
+                </div>
+                {!editingUser && (
+                  <div className="mb-3">
+                    <label className="form-label">Password *</label>
+                    <input 
+                      type="password" 
+                      className="form-control bg-dark text-white border-secondary" 
+                      value={userForm.password}
+                      onChange={e => setUserForm({...userForm, password: e.target.value})}
+                      placeholder="Min 6 characters"
+                    />
+                  </div>
+                )}
+                <div className="mb-3">
+                  <label className="form-label">Role</label>
+                  <select 
+                    className="form-select bg-dark text-white border-secondary"
+                    value={userForm.role}
+                    onChange={e => setUserForm({...userForm, role: e.target.value})}
+                  >
+                    {roles.length > 0 ? roles.map(role => (
+                      <option key={role.id} value={role.name}>{role.name}</option>
+                    )) : (
+                      <>
+                        <option value="Administrator">Administrator</option>
+                        <option value="Moderator">Moderator</option>
+                        <option value="Viewer">Viewer</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+              </div>
+              <div className="modal-footer border-secondary">
+                <button type="button" className="btn btn-secondary" onClick={() => setShowUserModal(false)}>Cancel</button>
+                <button type="button" className="btn btn-primary" onClick={handleSaveUser} disabled={loading}>
+                  {loading ? 'Saving...' : (editingUser ? 'Update' : 'Create')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Password Modal */}
+      {showResetPasswordModal && (
+        <div className="modal show d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
+          <div className="modal-dialog modal-sm">
+            <div className="modal-content bg-dark text-white">
+              <div className="modal-header border-secondary">
+                <h5 className="modal-title">🔑 Reset Password</h5>
+                <button type="button" className="btn-close btn-close-white" onClick={() => setShowResetPasswordModal(false)}></button>
+              </div>
+              <div className="modal-body">
+                <div className="mb-3">
+                  <label className="form-label">New Password</label>
+                  <input 
+                    type="password" 
+                    className="form-control bg-dark text-white border-secondary" 
+                    value={newPassword}
+                    onChange={e => setNewPassword(e.target.value)}
+                    placeholder="Min 6 characters"
+                  />
+                </div>
+              </div>
+              <div className="modal-footer border-secondary">
+                <button type="button" className="btn btn-secondary" onClick={() => setShowResetPasswordModal(false)}>Cancel</button>
+                <button type="button" className="btn btn-warning" onClick={handleResetPassword} disabled={loading}>
+                  {loading ? 'Resetting...' : 'Reset Password'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Страница Profile */}
+      {navPage === 'profile' && (
+        <div>
+          <div className="d-flex justify-content-between align-items-center mb-4">
+            <h1 className="h3 mb-0 text-white">👤 User Profile</h1>
+          </div>
+
+          <div className="row g-4">
+            {/* Profile Info Card */}
+            <div className="col-md-6">
+              <div className="card bg-dark border-secondary">
+                <div className="card-header border-secondary">
+                  <h5 className="mb-0">📋 Profile Information</h5>
+                </div>
+                <div className="card-body">
+                  <div className="text-center mb-4">
+                    <div className="rounded-circle bg-primary d-inline-flex align-items-center justify-content-center" style={{width: '80px', height: '80px', fontSize: '2rem'}}>
+                      👤
+                    </div>
+                  </div>
+                  <ul className="list-unstyled">
+                    <li className="py-2 border-bottom border-secondary">
+                      <strong>Username:</strong> <span className="text-info">{localStorage.getItem('username') || 'admin'}</span>
+                    </li>
+                    <li className="py-2 border-bottom border-secondary">
+                      <strong>Role:</strong> <span className="badge bg-primary">Administrator</span>
+                    </li>
+                    <li className="py-2 border-bottom border-secondary">
+                      <strong>Email:</strong> <span className="text-muted">admin@eyeson.local</span>
+                    </li>
+                    <li className="py-2">
+                      <strong>Last Login:</strong> <span className="text-muted">{new Date().toLocaleString()}</span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            {/* Session Info Card */}
+            <div className="col-md-6">
+              <div className="card bg-dark border-secondary">
+                <div className="card-header border-secondary">
+                  <h5 className="mb-0">🔐 Session Information</h5>
+                </div>
+                <div className="card-body">
+                  <ul className="list-unstyled">
+                    <li className="py-2 border-bottom border-secondary">
+                      <strong>Session Status:</strong> <span className="badge bg-success">Active</span>
+                    </li>
+                    <li className="py-2 border-bottom border-secondary">
+                      <strong>Session Started:</strong> <span className="text-muted">{localStorage.getItem('sessionStart') || new Date().toLocaleString()}</span>
+                    </li>
+                    <li className="py-2 border-bottom border-secondary">
+                      <strong>Token Expires:</strong> <span className="text-warning">In 24 hours</span>
+                    </li>
+                    <li className="py-2">
+                      <strong>API Access:</strong> <span className="badge bg-info">Full Access</span>
+                    </li>
+                  </ul>
+                  <div className="d-grid gap-2 mt-3">
+                    <button className="btn btn-outline-warning" onClick={() => {
+                      if (window.confirm('Are you sure you want to change your password?')) {
+                        alert('Password change feature coming soon!');
+                      }
+                    }}>
+                      🔑 Change Password
+                    </button>
+                    <button className="btn btn-outline-danger" onClick={handleLogout}>
+                      🚪 Logout
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Preferences Card */}
+            <div className="col-md-12">
+              <div className="card bg-dark border-secondary">
+                <div className="card-header border-secondary">
+                  <h5 className="mb-0">⚙️ Preferences</h5>
+                </div>
+                <div className="card-body">
+                  <div className="row g-3">
+                    <div className="col-md-4">
+                      <label className="form-label text-muted">Theme</label>
+                      <select className="form-select" defaultValue="dark">
+                        <option value="dark">Dark</option>
+                        <option value="light">Light</option>
+                        <option value="auto">Auto</option>
+                      </select>
+                    </div>
+                    <div className="col-md-4">
+                      <label className="form-label text-muted">Default Page Size</label>
+                      <select className="form-select" defaultValue={pagination.limit}>
+                        <option value="10">10 items</option>
+                        <option value="25">25 items</option>
+                        <option value="50">50 items</option>
+                        <option value="100">100 items</option>
+                      </select>
+                    </div>
+                    <div className="col-md-4">
+                      <label className="form-label text-muted">Language</label>
+                      <select className="form-select" defaultValue="en">
+                        <option value="en">English</option>
+                        <option value="ru">Русский</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="mt-3">
+                    <button className="btn btn-primary" onClick={() => showToast('Preferences saved!', 'success')}>
+                      💾 Save Preferences
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ToastContainer toasts={toasts} />
+    </div>
+  );
+}
+
+// ==================== ПОДКОМПОНЕНТЫ ====================
+
+function ToastContainer({ toasts }: { toasts: Toast[] }) {
+  return (
+    <div className="toast-container position-fixed bottom-0 end-0 p-3" style={{zIndex: 9999}}>
+      {toasts.map(toast => (
+        <div key={toast.id} className="toast show" role="alert" style={{
+          backgroundColor: toast.type === 'danger' ? '#dc3545' : 
+                          toast.type === 'success' ? '#198754' : 
+                          toast.type === 'warning' ? '#ffc107' : '#0dcaf0',
+          color: toast.type === 'warning' ? '#000' : '#fff'
+        }}>
+          <div className="toast-body">{toast.message}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+interface SimDetailModalProps {
+  sim: any;
+  editMode: boolean;
+  editValues: any;
+  loading: boolean;
+  onClose: () => void;
+  onEditStart: () => void;
+  onEditSave: () => void;
+  onEditValueChange: (key: string, value: string) => void;
+  onStatusChange: (status: string) => void;
+}
+
+function SimDetailModal({ sim, editMode, editValues, loading, onClose, onEditStart, onEditSave, onEditValueChange, onStatusChange }: SimDetailModalProps) {
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const modalRef = React.useRef<HTMLDivElement>(null);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    // Only drag from header
+    if ((e.target as HTMLElement).closest('.modal-header')) {
+      setIsDragging(true);
+      setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
+      e.preventDefault();
+    }
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (isDragging) {
+      setPosition({
+        x: e.clientX - dragStart.x,
+        y: e.clientY - dragStart.y
+      });
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  return (
+    <div 
+      className="modal fade show d-block" 
+      style={{backgroundColor: 'rgba(0,0,0,0.5)'}} 
+      tabIndex={-1}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
+    >
+      <div 
+        ref={modalRef}
+        className="modal-dialog modal-lg"
+        style={{
+          transform: `translate(${position.x}px, ${position.y}px)`,
+          margin: '1.75rem auto',
+          transition: isDragging ? 'none' : 'transform 0.1s ease-out'
+        }}
+        onMouseDown={handleMouseDown}
+      >
+        <div className="modal-content">
+          <div className="modal-header" style={{ cursor: 'move', userSelect: 'none' }}>
+            <h5 className="modal-title">📱 SIM Details: {sim.MSISDN}</h5>
+            <button type="button" className="btn-close" onClick={onClose}></button>
+          </div>
+          <div className="modal-body">
+            {editMode ? (
+              <div className="row g-3">
+                <div className="col-12"><h6 className="text-primary">Edit Labels</h6></div>
+                <div className="col-md-12">
+                  <label className="form-label text-muted small">Label 1 (SIM Label)</label>
+                  <input type="text" className="form-control" value={editValues.label1} onChange={e => onEditValueChange('label1', e.target.value)} />
+                </div>
+                <div className="col-md-12">
+                  <label className="form-label text-muted small">Label 2 (Group Tag)</label>
+                  <input type="text" className="form-control" value={editValues.label2} onChange={e => onEditValueChange('label2', e.target.value)} />
+                </div>
+                <div className="col-md-12">
+                  <label className="form-label text-muted small">Label 3 (Device Tag)</label>
+                  <input type="text" className="form-control" value={editValues.label3} onChange={e => onEditValueChange('label3', e.target.value)} />
+                </div>
+              </div>
+            ) : (
+              <div className="row g-3">
+                <div className="col-md-6">
+                  <label className="text-muted small">CLI (Local Number)</label>
+                  <div className="fw-bold">{sim.CLI}</div>
+                </div>
+                <div className="col-md-6">
+                  <label className="text-muted small">ICCID</label>
+                  <div className="fw-bold text-break">{sim.SIM_SWAP}</div>
+                </div>
+                <div className="col-md-6">
+                  <label className="text-muted small">Status</label>
+                  <div>{getStatusBadge(sim.SIM_STATUS_CHANGE, sim._pending)}</div>
+                </div>
+                <div className="col-md-6">
+                  <label className="text-muted small">IMSI</label>
+                  <div className="fw-bold">{sim.IMSI}</div>
+                </div>
+                <div className="col-12"><hr className="border-secondary" /><h6 className="text-primary mb-3">Plan & Usage</h6></div>
+                <div className="col-md-6">
+                  <label className="text-muted small">Rate Plan</label>
+                  <div>{sim.RATE_PLAN_FULL_NAME}</div>
+                </div>
+                <div className="col-md-6">
+                  <label className="text-muted small">APN</label>
+                  <div>{sim.APN_NAME}</div>
+                </div>
+                <div className="col-md-6">
+                  <label className="text-muted small">IP Address</label>
+                  <div>{sim.IP1 || '-'}</div>
+                </div>
+                <div className="col-md-6">
+                  <label className="text-muted small">Monthly Usage</label>
+                  <div>{sim.MONTHLY_USAGE_MB} MB / {sim.ALLOCATED_MB} MB</div>
+                </div>
+                <div className="col-12"><hr className="border-secondary" /><h6 className="text-primary mb-3">Labels</h6></div>
+                <div className="col-md-4">
+                  <label className="text-muted small">Label 1</label>
+                  <div>{sim.CUSTOMER_LABEL_1 || '-'}</div>
+                </div>
+                <div className="col-md-4">
+                  <label className="text-muted small">Label 2</label>
+                  <div>{sim.CUSTOMER_LABEL_2 || '-'}</div>
+                </div>
+                <div className="col-md-4">
+                  <label className="text-muted small">Label 3</label>
+                  <div>{sim.CUSTOMER_LABEL_3 || '-'}</div>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="modal-footer justify-content-between">
+            <div>
+              {!editMode && (
+                <div className="btn-group">
+                  <button className="btn btn-outline-success btn-sm" onClick={() => onStatusChange('Activated')} disabled={sim._pending}>Activate</button>
+                  <button className="btn btn-outline-warning btn-sm" onClick={() => onStatusChange('Suspended')} disabled={sim._pending}>Suspend</button>
+                  <button className="btn btn-outline-danger btn-sm" onClick={() => onStatusChange('Terminated')} disabled={sim._pending}>Terminate</button>
+                </div>
+              )}
+            </div>
+            <div className="d-flex gap-2">
+              <button type="button" className="btn btn-secondary" onClick={onClose}>Close</button>
+              {editMode ? (
+                <button type="button" className="btn btn-success" onClick={onEditSave} disabled={loading}>
+                  {loading ? 'Saving...' : 'Save Changes'}
+                </button>
+              ) : (
+                <button type="button" className="btn btn-primary" onClick={onEditStart}>Edit Labels</button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default App;

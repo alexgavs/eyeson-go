@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Profile - EyesOn Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        body {
+            background-color: #1b2636;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+
+        .card {
+            background-color: #253346;
+            border-color: #2c3e50;
+            color: #fff;
+        }
+
+        .form-control, .form-select {
+            background-color: #1b2636;
+            border-color: #4a5568;
+            color: #fff;
+        }
+
+        .form-control:focus, .form-select:focus {
+            background-color: #1b2636;
+            color: #fff;
+            border-color: #667eea;
+            box-shadow: 0 0 0 0.25rem rgba(102, 126, 234, 0.25);
+        }
+
+        .profile-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px 0;
+            margin-bottom: 30px;
+        }
+
+        .profile-avatar {
+            width: 120px;
+            height: 120px;
+            background: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+            margin: 0 auto 20px;
+            color: #667eea;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #5568d3 0%, #653a8a 100%);
+        }
+
+        .info-label {
+            color: #9ca3af;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+
+        .info-value {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+
+        .badge-role {
+            padding: 8px 16px;
+            font-size: 14px;
+            border-radius: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div id="navbar"></div>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body text-center">
+                        <div class="profile-avatar">
+                            <i class="bi bi-person-circle"></i>
+                        </div>
+                        <h4 id="profile-username">Loading...</h4>
+                        <span id="profile-role" class="badge badge-role bg-primary"></span>
+                        <p class="text-muted mt-3 mb-0">
+                            <small>Member since <span id="profile-created"></span></small>
+                        </p>
+                    </div>
+                </div>
+
+                <div class="card mt-3">
+                    <div class="card-body">
+                        <h6 class="card-title mb-3">Account Status</h6>
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span>Status</span>
+                            <span id="profile-status" class="badge bg-success">Active</span>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span>Last Seen</span>
+                            <span id="profile-last-seen" class="text-muted">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-person"></i> Profile Information</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="info-label">Username</div>
+                                <div class="info-value" id="info-username">-</div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="info-label">User ID</div>
+                                <div class="info-value" id="info-id">-</div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="info-label">Role</div>
+                                <div class="info-value" id="info-role">-</div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="info-label">Permissions</div>
+                                <div class="info-value" id="info-permissions">-</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-key"></i> Change Password</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="change-password-form" onsubmit="changePassword(event)">
+                            <div class="mb-3">
+                                <label class="form-label">Current Password</label>
+                                <input type="password" class="form-control" id="old-password" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">New Password</label>
+                                <input type="password" class="form-control" id="new-password" required minlength="6">
+                                <small class="text-muted">Minimum 6 characters</small>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Confirm New Password</label>
+                                <input type="password" class="form-control" id="confirm-password" required minlength="6">
+                            </div>
+                            <div id="password-error" class="alert alert-danger d-none"></div>
+                            <div id="password-success" class="alert alert-success d-none"></div>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-check-circle"></i> Change Password
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/assets/navbar.js"></script>
+    <script>
+        const API_BASE = '/api/v1';
+        let token = localStorage.getItem('token');
+        let currentUser = null;
+
+        async function loadProfile() {
+            try {
+                const response = await fetch(`${API_BASE}/users`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (!response.ok) throw new Error('Failed to load profile');
+
+                const users = await response.json();
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                currentUser = users.find(u => u.id === payload.user_id);
+
+                if (currentUser) {
+                    document.getElementById('profile-username').textContent = currentUser.username;
+                    document.getElementById('profile-role').textContent = currentUser.role_name;
+                    document.getElementById('profile-status').textContent = currentUser.is_active ? 'Active' : 'Inactive';
+                    document.getElementById('profile-status').className = `badge ${currentUser.is_active ? 'bg-success' : 'bg-danger'}`;
+                    document.getElementById('profile-last-seen').textContent = formatDate(currentUser.last_seen);
+                    document.getElementById('profile-created').textContent = formatDate(currentUser.created_at || currentUser.CreatedAt);
+
+                    document.getElementById('info-username').textContent = currentUser.username;
+                    document.getElementById('info-id').textContent = currentUser.id;
+                    document.getElementById('info-role').textContent = currentUser.role_name;
+
+                    // Load role permissions
+                    loadRolePermissions(currentUser.role_id);
+                }
+            } catch (error) {
+                console.error('Error loading profile:', error);
+            }
+        }
+
+        async function loadRolePermissions(roleId) {
+            try {
+                const response = await fetch(`${API_BASE}/roles/${roleId}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (response.ok) {
+                    const role = await response.json();
+                    const permissions = role.Permissions.split(',').map(p => p.trim());
+                    document.getElementById('info-permissions').innerHTML = permissions
+                        .map(p => `<span class="badge bg-secondary me-1">${p}</span>`)
+                        .join('');
+                }
+            } catch (error) {
+                console.error('Error loading permissions:', error);
+            }
+        }
+
+        async function changePassword(event) {
+            event.preventDefault();
+
+            const oldPassword = document.getElementById('old-password').value;
+            const newPassword = document.getElementById('new-password').value;
+            const confirmPassword = document.getElementById('confirm-password').value;
+            const errorDiv = document.getElementById('password-error');
+            const successDiv = document.getElementById('password-success');
+
+            errorDiv.classList.add('d-none');
+            successDiv.classList.add('d-none');
+
+            if (newPassword !== confirmPassword) {
+                errorDiv.textContent = 'New passwords do not match';
+                errorDiv.classList.remove('d-none');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/auth/change-password`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        old_password: oldPassword,
+                        new_password: newPassword
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to change password');
+                }
+
+                successDiv.textContent = 'Password changed successfully!';
+                successDiv.classList.remove('d-none');
+                document.getElementById('change-password-form').reset();
+            } catch (error) {
+                errorDiv.textContent = error.message;
+                errorDiv.classList.remove('d-none');
+            }
+        }
+
+        function formatDate(dateString) {
+            if (!dateString || dateString === '0001-01-01T00:00:00Z') {
+                return 'Never';
+            }
+            const date = new Date(dateString);
+            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            if (!token) {
+                window.location.href = '/login.html';
+                return;
+            }
+            loadProfile();
+        });
+    </script>
+</body>
+</html>
