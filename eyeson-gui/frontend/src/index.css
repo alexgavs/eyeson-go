@@ -1,47 +1,459 @@
-body {
-  font-family: Arial, sans-serif;
-  margin: 0;
-  padding: 20px;
-  background-color: #1b2636;
-  color: white;
+/* 
+ * EyesOn Theme System
+ * Based on VS Code Dark+ and Light+ themes for optimal readability
+ */
+
+/* ============================================
+   VS Code Dark+ Theme (Default)
+   ============================================ */
+:root {
+  /* Editor colors */
+  --bg-editor: #1e1e1e;
+  --bg-sidebar: #252526;
+  --bg-panel: #1e1e1e;
+  --bg-input: #3c3c3c;
+  --bg-dropdown: #3c3c3c;
+  --bg-hover: #2a2d2e;
+  --bg-selected: #094771;
+  --bg-highlight: #264f78;
+  
+  /* Card/Container colors */
+  --bg-card: #252526;
+  --bg-card-header: #333333;
+  --bg-card-hover: #2a2d2e;
+  
+  /* Text colors - high contrast for readability */
+  --text-primary: #d4d4d4;
+  --text-secondary: #cccccc;
+  --text-muted: #858585;
+  --text-link: #3794ff;
+  --text-heading: #ffffff;
+  
+  /* Border colors */
+  --border-color: #454545;
+  --border-light: #3c3c3c;
+  --border-focus: #007fd4;
+  
+  /* Accent colors */
+  --accent-primary: #0e639c;
+  --accent-primary-hover: #1177bb;
+  --accent-secondary: #007acc;
+  
+  /* Status colors - VS Code standard */
+  --success: #4ec9b0;
+  --success-bg: rgba(78, 201, 176, 0.2);
+  --warning: #dcdcaa;
+  --warning-bg: rgba(220, 220, 170, 0.2);
+  --danger: #f14c4c;
+  --danger-bg: rgba(241, 76, 76, 0.2);
+  --info: #3794ff;
+  --info-bg: rgba(55, 148, 255, 0.2);
+  
+  /* Button colors */
+  --btn-primary-bg: #0e639c;
+  --btn-primary-hover: #1177bb;
+  --btn-secondary-bg: #3c3c3c;
+  --btn-secondary-hover: #505050;
+  
+  /* Navbar */
+  --navbar-bg: #333333;
+  --navbar-text: #cccccc;
+  --navbar-active: #ffffff;
+  
+  /* Table */
+  --table-header-bg: #333333;
+  --table-row-hover: #2a2d2e;
+  --table-border: #454545;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+  
+  /* Modal */
+  --modal-overlay: rgba(0, 0, 0, 0.6);
+  --modal-bg: #252526;
+  
+  /* Scrollbar */
+  --scrollbar-bg: #1e1e1e;
+  --scrollbar-thumb: #424242;
+  --scrollbar-thumb-hover: #4f4f4f;
 }
 
+/* ============================================
+   VS Code Light+ Theme
+   ============================================ */
+[data-theme="light"] {
+  /* Editor colors */
+  --bg-editor: #ffffff;
+  --bg-sidebar: #f3f3f3;
+  --bg-panel: #ffffff;
+  --bg-input: #ffffff;
+  --bg-dropdown: #ffffff;
+  --bg-hover: #e8e8e8;
+  --bg-selected: #add6ff;
+  --bg-highlight: #e4e6f1;
+  
+  /* Card/Container colors */
+  --bg-card: #ffffff;
+  --bg-card-header: #f3f3f3;
+  --bg-card-hover: #f5f5f5;
+  
+  /* Text colors - proper contrast for light background */
+  --text-primary: #333333;
+  --text-secondary: #444444;
+  --text-muted: #6e7681;
+  --text-link: #0066b8;
+  --text-heading: #1e1e1e;
+  
+  /* Border colors */
+  --border-color: #d0d0d0;
+  --border-light: #e5e5e5;
+  --border-focus: #0066b8;
+  
+  /* Accent colors */
+  --accent-primary: #0066b8;
+  --accent-primary-hover: #005a9e;
+  --accent-secondary: #007acc;
+  
+  /* Status colors - adjusted for light theme */
+  --success: #388a34;
+  --success-bg: rgba(56, 138, 52, 0.15);
+  --warning: #9d5d00;
+  --warning-bg: rgba(157, 93, 0, 0.15);
+  --danger: #cd3131;
+  --danger-bg: rgba(205, 49, 49, 0.15);
+  --info: #0066b8;
+  --info-bg: rgba(0, 102, 184, 0.15);
+  
+  /* Button colors */
+  --btn-primary-bg: #0066b8;
+  --btn-primary-hover: #005a9e;
+  --btn-secondary-bg: #e5e5e5;
+  --btn-secondary-hover: #d4d4d4;
+  
+  /* Navbar */
+  --navbar-bg: #f3f3f3;
+  --navbar-text: #333333;
+  --navbar-active: #000000;
+  
+  /* Table */
+  --table-header-bg: #f3f3f3;
+  --table-row-hover: #f5f5f5;
+  --table-border: #e0e0e0;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+  
+  /* Modal */
+  --modal-overlay: rgba(0, 0, 0, 0.4);
+  --modal-bg: #ffffff;
+  
+  /* Scrollbar */
+  --scrollbar-bg: #f3f3f3;
+  --scrollbar-thumb: #c1c1c1;
+  --scrollbar-thumb-hover: #a8a8a8;
+}
+
+/* ============================================
+   Base Styles
+   ============================================ */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  margin: 0;
+  padding: 20px;
+  background-color: var(--bg-editor);
+  color: var(--text-primary);
+  transition: background-color 0.15s ease, color 0.15s ease;
+  line-height: 1.5;
+  font-size: 14px;
+}
+
+/* ============================================
+   Bootstrap Overrides for Theme
+   ============================================ */
+
+/* Dark backgrounds */
+.bg-dark {
+  background-color: var(--bg-card) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Borders */
+.border-secondary {
+  border-color: var(--border-color) !important;
+}
+
+/* Text colors */
+.text-white,
+.text-light {
+  color: var(--text-primary) !important;
+}
+
+.text-muted {
+  color: var(--text-muted) !important;
+}
+
+/* Navbar */
+.navbar-dark {
+  background-color: var(--navbar-bg) !important;
+}
+
+.navbar-dark .navbar-brand,
+.navbar-dark .nav-link {
+  color: var(--navbar-text) !important;
+}
+
+.navbar-dark .nav-link:hover,
+.navbar-dark .nav-link.active {
+  color: var(--navbar-active) !important;
+}
+
+/* Form controls */
+.form-control,
+.form-select {
+  background-color: var(--bg-input) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+
+.form-control:focus,
+.form-select:focus {
+  border-color: var(--border-focus) !important;
+  box-shadow: 0 0 0 2px rgba(0, 127, 212, 0.25) !important;
+}
+
+.form-control::placeholder {
+  color: var(--text-muted) !important;
+}
+
+/* Select dropdown options */
+.form-select option,
+select option {
+  background-color: var(--bg-dropdown) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Tables */
+.table {
+  color: var(--text-primary) !important;
+}
+
+.table-dark {
+  background-color: var(--bg-card) !important;
+  color: var(--text-primary) !important;
+  --bs-table-bg: var(--bg-card);
+  --bs-table-color: var(--text-primary);
+  --bs-table-border-color: var(--table-border);
+}
+
+.table-dark th {
+  background-color: var(--table-header-bg) !important;
+  color: var(--text-heading) !important;
+  border-color: var(--table-border) !important;
+  font-weight: 600;
+}
+
+.table-dark td {
+  border-color: var(--table-border) !important;
+  color: var(--text-primary) !important;
+}
+
+.table-dark tbody tr:hover {
+  background-color: var(--table-row-hover) !important;
+  --bs-table-hover-bg: var(--table-row-hover);
+}
+
+/* Cards */
+.card {
+  background-color: var(--bg-card) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+
+.card-header {
+  background-color: var(--bg-card-header) !important;
+  border-bottom-color: var(--border-color) !important;
+  color: var(--text-heading) !important;
+}
+
+/* Modals */
+.modal-content {
+  background-color: var(--modal-bg) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.modal-header {
+  border-bottom-color: var(--border-color) !important;
+}
+
+.modal-footer {
+  border-top-color: var(--border-color) !important;
+}
+
+/* Dropdowns */
+.dropdown-menu {
+  background-color: var(--bg-dropdown) !important;
+  border-color: var(--border-color) !important;
+}
+
+.dropdown-item {
+  color: var(--text-primary) !important;
+}
+
+.dropdown-item:hover,
+.dropdown-item:focus {
+  background-color: var(--bg-hover) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Buttons */
+.btn-outline-light {
+  color: var(--text-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.btn-outline-light:hover {
+  background-color: var(--bg-hover) !important;
+  color: var(--text-primary) !important;
+}
+
+.btn-primary {
+  background-color: var(--btn-primary-bg) !important;
+  border-color: var(--btn-primary-bg) !important;
+}
+
+.btn-primary:hover {
+  background-color: var(--btn-primary-hover) !important;
+  border-color: var(--btn-primary-hover) !important;
+}
+
+/* Badges with proper contrast */
+.badge.bg-success {
+  background-color: var(--success) !important;
+  color: #ffffff !important;
+}
+
+.badge.bg-warning {
+  background-color: var(--warning) !important;
+  color: #000000 !important;
+}
+
+.badge.bg-danger {
+  background-color: var(--danger) !important;
+  color: #ffffff !important;
+}
+
+.badge.bg-info {
+  background-color: var(--info) !important;
+  color: #ffffff !important;
+}
+
+.badge.bg-secondary {
+  background-color: var(--btn-secondary-bg) !important;
+  color: var(--text-primary) !important;
+}
+
+.badge.bg-primary {
+  background-color: var(--accent-primary) !important;
+  color: #ffffff !important;
+}
+
+/* Alerts */
+.alert {
+  color: var(--text-primary) !important;
+}
+
+.alert-info {
+  background-color: var(--info-bg) !important;
+  border-color: var(--info) !important;
+}
+
+.alert-success {
+  background-color: var(--success-bg) !important;
+  border-color: var(--success) !important;
+}
+
+.alert-warning {
+  background-color: var(--warning-bg) !important;
+  border-color: var(--warning) !important;
+}
+
+.alert-danger {
+  background-color: var(--danger-bg) !important;
+  border-color: var(--danger) !important;
+}
+
+/* ============================================
+   Scrollbar Styling
+   ============================================ */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* ============================================
+   Login Page
+   ============================================ */
 .login-container {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100vh;
+  min-height: 100vh;
 }
 
-input {
-  padding: 10px;
-  margin: 5px;
-  border-radius: 4px;
-  border: 1px solid #ccc;
-}
-
-button {
-  padding: 10px 20px;
-  background-color: #007bff;
-  color: white;
-  border: none;
-  border-radius: 4px;
+/* ============================================
+   Utility Classes
+   ============================================ */
+.cursor-pointer {
   cursor: pointer;
 }
 
-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 20px;
+/* Headers */
+h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6 {
+  color: var(--text-heading) !important;
 }
 
-th, td {
-  padding: 10px;
-  text-align: left;
-  border-bottom: 1px solid #444;
+/* List groups */
+.list-group-item {
+  background-color: var(--bg-card) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
 }
 
-th {
-  background-color: #2c3e50;
+/* Input groups */
+.input-group-text {
+  background-color: var(--bg-input) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Close button */
+.btn-close {
+  filter: var(--bs-btn-close-white-filter, invert(1) grayscale(100%) brightness(200%));
+}
+
+[data-theme="light"] .btn-close {
+  filter: none;
 }

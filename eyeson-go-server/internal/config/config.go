@@ -32,7 +32,7 @@ func LoadConfig() (*Config, error) {
 	_ = godotenv.Load()
 
 	cfg := &Config{
-		Port:        getEnv("PORT", "8080"),
+		Port:        getEnv("PORT", "5000"),
 		DBPath:      getEnv("DATABASE_PATH", "eyeson.db"),
 		ApiBaseUrl:  getEnv("EYESON_API_BASE_URL", "https://eot-portal.pelephone.co.il:8888"),
 		ApiUsername: getEnv("EYESON_API_USERNAME", ""),

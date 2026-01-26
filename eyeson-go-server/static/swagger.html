@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EyesOn API Documentation</title>
+    <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+    <style>
+        html {
+            box-sizing: border-box;
+            overflow: -moz-scrollbars-vertical;
+            overflow-y: scroll;
+        }
+        *,
+        *:before,
+        *:after {
+            box-sizing: inherit;
+        }
+        body {
+            margin: 0;
+            background: #fafafa;
+        }
+        .swagger-ui .topbar {
+            background-color: #1e1e1e;
+            padding: 10px 0;
+        }
+        .swagger-ui .topbar .download-url-wrapper {
+            display: flex;
+            flex: 3;
+            justify-content: flex-end;
+        }
+        .swagger-ui .topbar .download-url-wrapper input[type=text] {
+            border: 2px solid #007acc;
+            border-radius: 4px 0 0 4px;
+            outline: none;
+        }
+        .swagger-ui .topbar .download-url-wrapper .download-url-button {
+            background: #007acc;
+            border-radius: 0 4px 4px 0;
+        }
+        .swagger-ui .info .title {
+            color: #1e1e1e;
+        }
+        .swagger-ui .scheme-container {
+            background: #f3f3f3;
+            box-shadow: 0 1px 2px 0 rgba(0,0,0,0.15);
+        }
+        /* Custom header */
+        .custom-header {
+            background: linear-gradient(135deg, #1e1e1e 0%, #333333 100%);
+            color: white;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .custom-header h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        .custom-header a {
+            color: #3794ff;
+            text-decoration: none;
+        }
+        .custom-header a:hover {
+            text-decoration: underline;
+        }
+        .header-links {
+            display: flex;
+            gap: 20px;
+        }
+        .header-links a {
+            background: rgba(255,255,255,0.1);
+            padding: 8px 16px;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+        .header-links a:hover {
+            background: rgba(255,255,255,0.2);
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="custom-header">
+        <h1>📡 EyesOn SIM Management API</h1>
+        <div class="header-links">
+            <a href="/">← Dashboard</a>
+            <a href="/swagger.json" target="_blank">📄 OpenAPI JSON</a>
+        </div>
+    </div>
+    <div id="swagger-ui"></div>
+    
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-standalone-preset.js"></script>
+    <script>
+        window.onload = function() {
+            const ui = SwaggerUIBundle({
+                url: "/swagger.json",
+                dom_id: '#swagger-ui',
+                deepLinking: true,
+                presets: [
+                    SwaggerUIBundle.presets.apis,
+                    SwaggerUIStandalonePreset
+                ],
+                plugins: [
+                    SwaggerUIBundle.plugins.DownloadUrl
+                ],
+                layout: "StandaloneLayout",
+                persistAuthorization: true,
+                defaultModelsExpandDepth: 1,
+                defaultModelExpandDepth: 1,
+                docExpansion: "list",
+                filter: true,
+                showExtensions: true,
+                showCommonExtensions: true,
+                tryItOutEnabled: true
+            });
+            
+            window.ui = ui;
+        };
+    </script>
+</body>
+</html>

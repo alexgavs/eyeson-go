@@ -277,3 +277,38 @@ export const GetRoles = async (): Promise<Role[]> => {
         return [];
     }
 };
+
+// API Status types
+export interface APIConnectionInfo {
+    status: string;
+    response_time_ms: number;
+    details?: Record<string, string>;
+    error?: string;
+}
+
+export interface APIStatusResponse {
+    eyeson_api: APIConnectionInfo;
+    go_backend: APIConnectionInfo;
+    database: APIConnectionInfo;
+    last_checked: string;
+}
+
+// Get API Status (Admin only)
+export const GetAPIStatus = async (): Promise<APIStatusResponse | null> => {
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${BASE_URL}/api-status`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        
+        if (response.ok) {
+            return await response.json();
+        }
+        return null;
+    } catch (e) {
+        console.error('Error fetching API status:', e);
+        return null;
+    }
+};

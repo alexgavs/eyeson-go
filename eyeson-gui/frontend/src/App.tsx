@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Login, GetSims, UpdateSim, ChangeStatus, GetJobs, GetUsers, CreateUser, UpdateUser, DeleteUser, ResetUserPassword, GetRoles, User, Role } from './api';
+import { Login, GetSims, UpdateSim, ChangeStatus, GetJobs, GetUsers, CreateUser, UpdateUser, DeleteUser, ResetUserPassword, GetRoles, GetAPIStatus, APIStatusResponse, User, Role } from './api';
 
 // ==================== ТИПЫ ====================
 
@@ -56,7 +56,8 @@ const ALL_COLUMNS: Record<string, ColumnConfig> = {
 const STORAGE_KEYS = {
   columns: 'eyeson_visible_columns',
   columnOrder: 'eyeson_column_order',
-  session: 'eyeson_session'
+  session: 'eyeson_session',
+  theme: 'theme'
 };
 
 const SESSION_DURATION = 24 * 60 * 60 * 1000; // 24 часа
@@ -217,6 +218,52 @@ function App() {
   const [resetPasswordUserId, setResetPasswordUserId] = useState<number | null>(null);
   const [newPassword, setNewPassword] = useState('');
 
+  // API Status (Admin only)
+  const [apiStatus, setApiStatus] = useState<APIStatusResponse | null>(null);
+  const [apiStatusLoading, setApiStatusLoading] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  // Theme
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.theme);
+    return (saved === 'light' || saved === 'dark') ? saved : 'dark';
+  });
+
+  // Modal dragging state
+  const [modalPosition, setModalPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+  // Modal drag handlers
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('.btn-close')) return;
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - modalPosition.x, y: e.clientY - modalPosition.y });
+  };
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isDragging) return;
+    setModalPosition({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
+  }, [isDragging, dragStart]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  useEffect(() => {
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, handleMouseMove, handleMouseUp]);
+
+  // Reset modal position when opening
+  const resetModalPosition = () => setModalPosition({ x: 0, y: 0 });
+
   // Колонки - порядок и видимость из cookies
   const [columnOrder, setColumnOrder] = useState<string[]>(() => {
     try {
@@ -279,6 +326,13 @@ function App() {
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ==================== ЭФФЕКТЫ ====================
+
+  // Применение темы
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    document.body.setAttribute('data-theme', theme);
+    localStorage.setItem(STORAGE_KEYS.theme, theme);
+  }, [theme]);
 
   // Проверка сохраненной сессии при загрузке
   useEffect(() => {
@@ -555,15 +609,50 @@ function App() {
     }
   }, [isLoggedIn, navPage, usersLoaded, loadUsers]);
 
+  // ==================== API STATUS (Admin only) ====================
+  
+  const loadAPIStatus = useCallback(async () => {
+    if (!isAdmin) return;
+    setApiStatusLoading(true);
+    try {
+      const status = await GetAPIStatus();
+      setApiStatus(status);
+    } catch (e) {
+      console.error('Error loading API status:', e);
+    } finally {
+      setApiStatusLoading(false);
+    }
+  }, [isAdmin]);
+
+  // Определяем роль пользователя при входе
+  useEffect(() => {
+    if (isLoggedIn) {
+      // Пробуем загрузить API статус - если успешно, значит админ
+      GetAPIStatus().then(status => {
+        if (status) {
+          setIsAdmin(true);
+          setApiStatus(status);
+        }
+      }).catch(() => {
+        setIsAdmin(false);
+      });
+    } else {
+      setIsAdmin(false);
+      setApiStatus(null);
+    }
+  }, [isLoggedIn]);
+
   const openCreateUserModal = () => {
     setEditingUser(null);
     setUserForm({ username: '', email: '', password: '', role: 'Viewer' });
+    resetModalPosition();
     setShowUserModal(true);
   };
 
   const openEditUserModal = (user: User) => {
     setEditingUser(user);
     setUserForm({ username: user.username, email: user.email, password: '', role: user.role });
+    resetModalPosition();
     setShowUserModal(true);
   };
 
@@ -1001,6 +1090,13 @@ function App() {
           </ul>
           <div className="d-flex gap-2 align-items-center">
             <span className="badge bg-secondary">Total: {stats?.total || total}</span>
+            <button 
+              className="btn btn-outline-light btn-sm" 
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} theme`}
+            >
+              {theme === 'dark' ? '☀️' : '🌙'}
+            </button>
             <button className="btn btn-outline-light btn-sm" onClick={() => { 
               if (navPage === 'sims') { 
                 loadData(pagination.start, pagination.limit);
@@ -1734,27 +1830,100 @@ function App() {
             {/* API Status Card */}
             <div className="col-md-6">
               <div className="card bg-dark border-secondary h-100">
-                <div className="card-header border-secondary">
+                <div className="card-header border-secondary d-flex justify-content-between align-items-center">
                   <h5 className="mb-0">🌐 API Status</h5>
+                  {isAdmin && (
+                    <button 
+                      className="btn btn-outline-light btn-sm" 
+                      onClick={loadAPIStatus}
+                      disabled={apiStatusLoading}
+                    >
+                      {apiStatusLoading ? '⏳' : '🔄'} Refresh
+                    </button>
+                  )}
                 </div>
                 <div className="card-body">
                   <ul className="list-unstyled">
                     <li className="py-2 border-bottom border-secondary d-flex justify-content-between">
-                      <span>EyesOn API</span>
-                      <span className="badge bg-success">● Online</span>
+                      <span>EyesOn API (Pelephone)</span>
+                      <span className={`badge ${apiStatus?.eyeson_api?.status === 'online' ? 'bg-success' : apiStatus ? 'bg-danger' : 'bg-secondary'}`}>
+                        ● {apiStatus?.eyeson_api?.status || 'Unknown'}
+                        {apiStatus?.eyeson_api?.response_time_ms ? ` (${apiStatus.eyeson_api.response_time_ms}ms)` : ''}
+                      </span>
                     </li>
                     <li className="py-2 border-bottom border-secondary d-flex justify-content-between">
                       <span>Go Backend</span>
-                      <span className="badge bg-success">● Online</span>
+                      <span className={`badge ${apiStatus?.go_backend?.status === 'online' ? 'bg-success' : apiStatus ? 'bg-danger' : 'bg-secondary'}`}>
+                        ● {apiStatus?.go_backend?.status || 'Unknown'}
+                      </span>
                     </li>
-                    <li className="py-2 d-flex justify-content-between">
+                    <li className="py-2 border-bottom border-secondary d-flex justify-content-between">
                       <span>Database</span>
-                      <span className="badge bg-success">● Online</span>
+                      <span className={`badge ${apiStatus?.database?.status === 'online' ? 'bg-success' : apiStatus ? 'bg-danger' : 'bg-secondary'}`}>
+                        ● {apiStatus?.database?.status || 'Unknown'}
+                      </span>
                     </li>
                   </ul>
-                  <div className="d-grid gap-2">
-                    <button className="btn btn-outline-success btn-sm" onClick={() => loadData(pagination.start, pagination.limit)}>
-                      Test Connection
+                  
+                  {/* Admin only: API Details - show even on error */}
+                  {isAdmin && apiStatus?.eyeson_api?.details && (
+                    <div className="mt-3 p-3 bg-black rounded">
+                      <h6 className="text-warning mb-2">🔐 API Connection Details (Admin)</h6>
+                      <table className="table table-sm table-dark mb-0">
+                        <tbody>
+                          <tr>
+                            <td className="text-muted">API URL:</td>
+                            <td><code className="text-info">{apiStatus.eyeson_api.details.api_url}</code></td>
+                          </tr>
+                          <tr>
+                            <td className="text-muted">API User:</td>
+                            <td><code className="text-success">{apiStatus.eyeson_api.details.api_user}</code></td>
+                          </tr>
+                          {apiStatus.eyeson_api.details.total_sims && (
+                            <tr>
+                              <td className="text-muted">Total SIMs:</td>
+                              <td><code className="text-primary">{apiStatus.eyeson_api.details.total_sims}</code></td>
+                            </tr>
+                          )}
+                          {apiStatus.eyeson_api.details.api_result && (
+                            <tr>
+                              <td className="text-muted">API Result:</td>
+                              <td><code className={apiStatus.eyeson_api.details.api_result === 'SUCCESS' ? 'text-success' : 'text-danger'}>{apiStatus.eyeson_api.details.api_result}</code></td>
+                            </tr>
+                          )}
+                          {apiStatus.eyeson_api.details.error_type && (
+                            <tr>
+                              <td className="text-muted">Error Type:</td>
+                              <td><code className="text-danger">{apiStatus.eyeson_api.details.error_type}</code></td>
+                            </tr>
+                          )}
+                          {apiStatus.eyeson_api.details.hint && (
+                            <tr>
+                              <td className="text-muted">Hint:</td>
+                              <td><small className="text-warning">{apiStatus.eyeson_api.details.hint}</small></td>
+                            </tr>
+                          )}
+                          <tr>
+                            <td className="text-muted">Last Check:</td>
+                            <td><code className="text-light">{new Date(apiStatus.last_checked).toLocaleString()}</code></td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  
+                  {apiStatus?.eyeson_api?.error && (
+                    <div className="alert alert-danger mt-2 mb-0 py-2">
+                      <small><strong>Error:</strong> {apiStatus.eyeson_api.error}</small>
+                    </div>
+                  )}
+                  
+                  <div className="d-grid gap-2 mt-3">
+                    <button 
+                      className="btn btn-outline-success btn-sm" 
+                      onClick={() => { loadData(pagination.start, pagination.limit); if (isAdmin) loadAPIStatus(); }}
+                    >
+                      🔗 Test Connection
                     </button>
                   </div>
                 </div>
@@ -1767,9 +1936,19 @@ function App() {
       {/* User Modal */}
       {showUserModal && (
         <div className="modal show d-block" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
-          <div className="modal-dialog">
+          <div 
+            className="modal-dialog" 
+            style={{
+              transform: `translate(${modalPosition.x}px, ${modalPosition.y}px)`,
+              transition: isDragging ? 'none' : 'transform 0.1s'
+            }}
+          >
             <div className="modal-content bg-dark text-white">
-              <div className="modal-header border-secondary">
+              <div 
+                className="modal-header border-secondary" 
+                style={{ cursor: 'move', userSelect: 'none' }}
+                onMouseDown={handleMouseDown}
+              >
                 <h5 className="modal-title">{editingUser ? '✏️ Edit User' : '➕ Create User'}</h5>
                 <button type="button" className="btn-close btn-close-white" onClick={() => setShowUserModal(false)}></button>
               </div>
@@ -1951,11 +2130,24 @@ function App() {
                   <div className="row g-3">
                     <div className="col-md-4">
                       <label className="form-label text-muted">Theme</label>
-                      <select className="form-select" defaultValue="dark">
-                        <option value="dark">Dark</option>
-                        <option value="light">Light</option>
-                        <option value="auto">Auto</option>
-                      </select>
+                      <div className="d-flex gap-2">
+                        <div 
+                          className={`theme-option p-3 rounded border ${theme === 'dark' ? 'border-primary bg-primary bg-opacity-25' : 'border-secondary'}`}
+                          style={{ cursor: 'pointer', flex: 1, textAlign: 'center' }}
+                          onClick={() => setTheme('dark')}
+                        >
+                          <div style={{ fontSize: '24px', marginBottom: '5px' }}>🌙</div>
+                          <div className={theme === 'dark' ? 'text-primary fw-bold' : ''}>Dark</div>
+                        </div>
+                        <div 
+                          className={`theme-option p-3 rounded border ${theme === 'light' ? 'border-primary bg-primary bg-opacity-25' : 'border-secondary'}`}
+                          style={{ cursor: 'pointer', flex: 1, textAlign: 'center' }}
+                          onClick={() => setTheme('light')}
+                        >
+                          <div style={{ fontSize: '24px', marginBottom: '5px' }}>☀️</div>
+                          <div className={theme === 'light' ? 'text-primary fw-bold' : ''}>Light</div>
+                        </div>
+                      </div>
                     </div>
                     <div className="col-md-4">
                       <label className="form-label text-muted">Default Page Size</label>

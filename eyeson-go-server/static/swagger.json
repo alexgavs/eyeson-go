@@ -1,0 +1,1738 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "EyesOn SIM Management API",
+    "description": "RESTful API for SIM card management and provisioning operations. This service functions as a secure proxy gateway to the Pelephone EyesOnT API, providing enterprise-grade authentication, intelligent caching, comprehensive user management, and role-based access control (RBAC).\n\n## Overview\n\nThe EyesOn API enables programmatic management of IoT/M2M SIM cards, including:\n- **Provisioning Operations**: Activate, suspend, and terminate SIM cards\n- **Data Management**: Update customer labels and metadata\n- **Monitoring**: Track usage, session status, and operational metrics\n- **Job Tracking**: Monitor asynchronous provisioning operations\n\n## Authentication\n\nThe API implements JWT (JSON Web Token) Bearer authentication. All protected endpoints require a valid token.\n\n### Obtaining a Token\n\n```http\nPOST /api/v1/auth/login\nContent-Type: application/json\n\n{\n  \"username\": \"your_username\",\n  \"password\": \"your_password\"\n}\n```\n\n### Using the Token\n\nInclude the token in the `Authorization` header for all subsequent requests:\n\n```http\nAuthorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\n```\n\nTokens are valid for **24 hours** from issuance.\n\n## Rate Limiting\n\nAPI requests are subject to rate limiting to ensure service stability. Additionally, the upstream Pelephone API may enforce its own rate limits. Implement appropriate retry logic with exponential backoff for production applications.\n\n## Roles & Permissions\n\nAccess control is enforced through role-based permissions:\n\n| Role | SIM Read | SIM Modify | Jobs | Users | Roles | API Status |\n|------|----------|------------|------|-------|-------|------------|\n| **Administrator** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |\n| **Moderator** | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |\n| **Viewer** | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |\n\n## Error Handling\n\nAll errors return a consistent JSON structure:\n\n```json\n{\n  \"error\": \"Descriptive error message\"\n}\n```\n\nHTTP status codes follow REST conventions:\n- `400` - Bad Request (invalid parameters)\n- `401` - Unauthorized (missing or invalid token)\n- `403` - Forbidden (insufficient permissions)\n- `404` - Not Found (resource does not exist)\n- `409` - Conflict (operation cannot be completed)\n- `500` - Internal Server Error\n- `502` - Bad Gateway (upstream API error)\n\n## Caching Strategy\n\nTo optimize performance and reduce upstream API load:\n- Statistics are cached for **5 minutes**\n- Cache status is indicated in responses via `cached` and `cache_age_seconds` fields\n- Real-time data operations bypass the cache",
+    "version": "1.0.0",
+    "contact": {
+      "name": "EyesOn API Support",
+      "email": "api-support@eyeson.local",
+      "url": "https://github.com/alexgavs/eyeson-go"
+    },
+    "license": {
+      "name": "MIT License",
+      "url": "https://opensource.org/licenses/MIT"
+    },
+    "x-logo": {
+      "url": "https://example.com/logo.png",
+      "altText": "EyesOn API"
+    }
+  },
+  "externalDocs": {
+    "description": "GitHub Repository & Documentation",
+    "url": "https://github.com/alexgavs/eyeson-go"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:5000",
+      "description": "Local Development Server"
+    },
+    {
+      "url": "http://127.0.0.1:5000",
+      "description": "Local Server (IP Address)"
+    },
+    {
+      "url": "https://api.eyeson.local",
+      "description": "Production Server (Example)"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Authentication",
+      "description": "User authentication, session management, and credential operations"
+    },
+    {
+      "name": "SIM Management",
+      "description": "SIM card provisioning, status management, and data operations"
+    },
+    {
+      "name": "Jobs",
+      "description": "Asynchronous job tracking, history, and status monitoring"
+    },
+    {
+      "name": "Users",
+      "description": "User account management and administration (Administrator role required)"
+    },
+    {
+      "name": "Roles",
+      "description": "Role and permission management (Administrator role required)"
+    },
+    {
+      "name": "Statistics",
+      "description": "System metrics, monitoring endpoints, and API health status"
+    }
+  ],
+  "paths": {
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Authenticate user and obtain JWT token",
+        "description": "Authenticates a user with username and password credentials and returns a JWT token for subsequent API requests. The token includes encoded user information and is valid for 24 hours.\n\n**Note**: Failed authentication attempts are logged for security monitoring.",
+        "operationId": "authenticateUser",
+        "requestBody": {
+          "description": "User authentication credentials",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              },
+              "examples": {
+                "standard": {
+                  "summary": "Standard Login",
+                  "description": "Typical authentication request",
+                  "value": {
+                    "username": "admin",
+                    "password": "admin123"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authentication successful. Returns JWT token and user profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                },
+                "example": {
+                  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxLCJ1c2VybmFtZSI6ImFkbWluIiwiZXhwIjoxNzA5MzA4ODAwfQ.signature",
+                  "user": {
+                    "id": 1,
+                    "username": "admin",
+                    "email": "admin@example.com",
+                    "role_id": 1,
+                    "role_name": "Administrator",
+                    "is_active": true
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Missing required fields",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "Username and password are required"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - Invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "Invalid username or password"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden - Account is inactive",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "Account is disabled. Please contact administrator."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/change-password": {
+      "put": {
+        "tags": ["Authentication"],
+        "summary": "Change current user's password",
+        "description": "Changes the password for the currently authenticated user. Requires the current password for verification. Password must meet minimum security requirements (6+ characters).",
+        "operationId": "changePassword",
+        "security": [{"bearerAuth": []}],
+        "requestBody": {
+          "description": "Password change request with current and new passwords",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              },
+              "example": {
+                "old_password": "currentPassword123",
+                "new_password": "newSecurePassword456"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Password changed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse"
+                },
+                "example": {
+                  "message": "Password updated successfully"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid current password or new password does not meet requirements",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - Valid authentication token required"
+          }
+        }
+      }
+    },
+    "/api/v1/sims": {
+      "get": {
+        "tags": ["SIM Management"],
+        "summary": "Retrieve paginated list of SIM cards",
+        "description": "Returns a paginated list of SIM cards with comprehensive filtering, searching, and sorting capabilities. Results are fetched in real-time from the upstream Pelephone EyesOnT API.\n\n### Search Behavior\nThe `search` parameter performs a wildcard match against:\n- MSISDN (international format)\n- CLI (local format)\n- Customer Labels (1, 2, 3)\n\n### Pagination\nUse `start` (offset) and `limit` parameters for pagination. The response includes `count` for total matching records.",
+        "operationId": "getSimList",
+        "security": [{"bearerAuth": []}],
+        "parameters": [
+          {
+            "name": "start",
+            "in": "query",
+            "description": "Pagination offset (zero-based index). Use with `limit` for pagination.",
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "minimum": 0
+            },
+            "example": 0
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of records to return per request.",
+            "schema": {
+              "type": "integer",
+              "default": 25,
+              "minimum": 1,
+              "maximum": 500
+            },
+            "example": 25
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "description": "Search query string. Matches against MSISDN, CLI, and customer labels using wildcard matching.",
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "example": "972501234567"
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "description": "Field to sort results by.",
+            "schema": {
+              "type": "string",
+              "enum": ["MSISDN", "CLI", "SIM_STATUS_CHANGE", "RATE_PLAN_CHANGE", "CUSTOMER_LABEL_1", "MONTHLY_USAGE_MB", "LAST_SESSION_TIME"]
+            },
+            "example": "MSISDN"
+          },
+          {
+            "name": "sortDirection",
+            "in": "query",
+            "description": "Sort direction for results.",
+            "schema": {
+              "type": "string",
+              "enum": ["ASC", "DESC"],
+              "default": "ASC"
+            },
+            "example": "ASC"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter by SIM operational status.",
+            "schema": {
+              "type": "string",
+              "enum": ["Activated", "Suspended", "Terminated"]
+            },
+            "example": "Activated"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SIM card list retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - Valid authentication token required"
+          },
+          "502": {
+            "description": "Bad Gateway - Upstream API communication error"
+          }
+        }
+      }
+    },
+    "/api/v1/sims/update": {
+      "post": {
+        "tags": ["SIM Management"],
+        "summary": "Update SIM card customer data",
+        "description": "Updates customer-defined labels for a specific SIM card identified by MSISDN. This operation creates an asynchronous job that can be tracked via the Jobs endpoint.\n\n**Required Role**: Administrator or Moderator",
+        "operationId": "updateSimData",
+        "security": [{"bearerAuth": []}],
+        "requestBody": {
+          "description": "SIM update request with target MSISDN and new label values",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSimRequest"
+              },
+              "example": {
+                "msisdn": "972501234567",
+                "label1": "Vehicle-GPS-001",
+                "label2": "Fleet-A",
+                "label3": "Active"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Update request submitted successfully. Returns job ID for tracking.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid MSISDN or request format"
+          },
+          "401": {
+            "description": "Unauthorized - Valid authentication token required"
+          },
+          "403": {
+            "description": "Forbidden - Administrator or Moderator role required"
+          }
+        }
+      }
+    },
+    "/api/v1/sims/bulk-status": {
+      "post": {
+        "tags": ["SIM Management"],
+        "summary": "Perform bulk SIM status change",
+        "description": "Changes the operational status of one or more SIM cards in a single batch operation. Creates an asynchronous job that processes each SIM sequentially. Monitor progress via the Jobs endpoint.\n\n### Status Transitions\n- **Activated → Suspended**: Temporarily disables SIM connectivity\n- **Suspended → Activated**: Restores SIM connectivity\n- Terminated SIMs cannot be reactivated\n\n**Required Role**: Administrator or Moderator",
+        "operationId": "bulkChangeSimStatus",
+        "security": [{"bearerAuth": []}],
+        "requestBody": {
+          "description": "Bulk status change request with target status and list of MSISDNs",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkStatusRequest"
+              },
+              "examples": {
+                "single": {
+                  "summary": "Single SIM Suspension",
+                  "description": "Suspend a single SIM card",
+                  "value": {
+                    "status": "Suspended",
+                    "msisdns": ["972501234567"]
+                  }
+                },
+                "multiple": {
+                  "summary": "Bulk Activation",
+                  "description": "Activate multiple SIM cards",
+                  "value": {
+                    "status": "Activated",
+                    "msisdns": ["972501234567", "972501234568", "972501234569"]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bulk status change request submitted. Returns job ID for tracking.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkStatusResponse"
+                },
+                "example": {
+                  "result": "SUCCESS",
+                  "message": "Status change job created",
+                  "requestId": 857512
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid status value or empty MSISDN list"
+          },
+          "401": {
+            "description": "Unauthorized - Valid authentication token required"
+          },
+          "403": {
+            "description": "Forbidden - Administrator or Moderator role required"
+          }
+        }
+      }
+    },
+    "/api/v1/jobs": {
+      "get": {
+        "tags": ["Jobs"],
+        "summary": "Retrieve provisioning job history",
+        "description": "Returns a paginated list of provisioning jobs (operation history). Jobs represent asynchronous operations such as status changes and data updates. Each job contains one or more actions with individual status tracking.\n\n### Job Lifecycle\n1. **PENDING** - Job created, awaiting processing\n2. **IN_PROGRESS** - Job is being executed\n3. **SUCCESS** - All actions completed successfully\n4. **PARTIAL_SUCCESS** - Some actions succeeded, some failed\n5. **FAILED** - All actions failed",
+        "operationId": "getJobList",
+        "security": [{"bearerAuth": []}],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number for pagination (1-based index)",
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "minimum": 1
+            },
+            "example": 1
+          },
+          {
+            "name": "perPage",
+            "in": "query",
+            "description": "Number of jobs per page",
+            "schema": {
+              "type": "integer",
+              "default": 25,
+              "minimum": 1,
+              "maximum": 500
+            },
+            "example": 25
+          },
+          {
+            "name": "jobId",
+            "in": "query",
+            "description": "Filter by specific job ID to retrieve details of a single job",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 857510
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter jobs by execution status",
+            "schema": {
+              "type": "string",
+              "enum": ["PENDING", "IN_PROGRESS", "COMPLETED", "FAILED", "SUCCESS", "PARTIAL_SUCCESS"]
+            },
+            "example": "SUCCESS"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job list retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - Valid authentication token required"
+          }
+        }
+      }
+    },
+    "/api/v1/stats": {
+      "get": {
+        "tags": ["Statistics"],
+        "summary": "Get SIM statistics summary",
+        "description": "Returns aggregated statistics about SIM cards including counts by operational status. Results are cached for 5 minutes to optimize performance.\n\nThe response includes cache metadata to indicate data freshness.",
+        "operationId": "getStatistics",
+        "security": [{"bearerAuth": []}],
+        "responses": {
+          "200": {
+            "description": "Statistics retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatsResponse"
+                },
+                "example": {
+                  "total": 50,
+                  "activated": 35,
+                  "suspended": 12,
+                  "terminated": 3,
+                  "cached": true,
+                  "cache_age_seconds": 127
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - Valid authentication token required"
+          }
+        }
+      }
+    },
+    "/api/v1/api-status": {
+      "get": {
+        "tags": ["Statistics"],
+        "summary": "Check upstream API connection status",
+        "description": "Performs a health check on the upstream Pelephone EyesOnT API connection and returns detailed connection information including API URL, credentials (masked), and current SIM count.\n\n**Required Role**: Administrator only\n\n**Note**: This endpoint makes a real API call to verify connectivity.",
+        "operationId": "getApiStatus",
+        "security": [{"bearerAuth": []}],
+        "responses": {
+          "200": {
+            "description": "API status retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiStatusResponse"
+                },
+                "examples": {
+                  "connected": {
+                    "summary": "Connected",
+                    "description": "Successful connection to upstream API",
+                    "value": {
+                      "status": "connected",
+                      "details": {
+                        "api_url": "https://eot-portal.pelephone.co.il:8888",
+                        "api_user": "apiuser",
+                        "total_sims": "50",
+                        "cache_age": "127"
+                      }
+                    }
+                  },
+                  "error": {
+                    "summary": "Connection Error",
+                    "description": "Failed to connect to upstream API",
+                    "value": {
+                      "status": "error",
+                      "error": "Connection timeout after 30 seconds"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - Valid authentication token required"
+          },
+          "403": {
+            "description": "Forbidden - Administrator role required"
+          }
+        }
+      }
+    },
+    "/api/v1/users": {
+      "get": {
+        "tags": ["Users"],
+        "summary": "List all user accounts",
+        "description": "Retrieves a list of all user accounts in the system with their profile information and role assignments.\n\n**Required Role**: Administrator",
+        "operationId": "getUserList",
+        "security": [{"bearerAuth": []}],
+        "responses": {
+          "200": {
+            "description": "User list retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/User"
+                  }
+                },
+                "example": [
+                  {
+                    "id": 1,
+                    "username": "admin",
+                    "email": "admin@example.com",
+                    "role_id": 1,
+                    "role_name": "Administrator",
+                    "is_active": true,
+                    "last_seen": "2024-01-15T10:30:00Z",
+                    "created_at": "2024-01-01T00:00:00Z"
+                  }
+                ]
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - Valid authentication token required"
+          },
+          "403": {
+            "description": "Forbidden - Administrator role required"
+          }
+        }
+      },
+      "post": {
+        "tags": ["Users"],
+        "summary": "Create new user account",
+        "description": "Creates a new user account with specified credentials and role assignment.\n\n**Required Role**: Administrator\n\n### Password Requirements\n- Minimum 6 characters",
+        "operationId": "createUser",
+        "security": [{"bearerAuth": []}],
+        "requestBody": {
+          "description": "User account details",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserRequest"
+              },
+              "example": {
+                "username": "newuser",
+                "password": "securePassword123",
+                "email": "newuser@example.com",
+                "role_id": 2
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "User created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid data or username already exists"
+          },
+          "401": {
+            "description": "Unauthorized - Valid authentication token required"
+          },
+          "403": {
+            "description": "Forbidden - Administrator role required"
+          }
+        }
+      }
+    },
+    "/api/v1/users/{id}": {
+      "get": {
+        "tags": ["Users"],
+        "summary": "Get user by ID",
+        "description": "Retrieves detailed information for a specific user account.\n\n**Required Role**: Administrator",
+        "operationId": "getUserById",
+        "security": [{"bearerAuth": []}],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Unique user identifier",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - Administrator role required"
+          },
+          "404": {
+            "description": "User not found"
+          }
+        }
+      },
+      "put": {
+        "tags": ["Users"],
+        "summary": "Update user account",
+        "description": "Updates an existing user account. Partial updates are supported - only include fields that need to be changed.\n\n**Required Role**: Administrator",
+        "operationId": "updateUser",
+        "security": [{"bearerAuth": []}],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Unique user identifier",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          }
+        ],
+        "requestBody": {
+          "description": "Fields to update",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserRequest"
+              },
+              "example": {
+                "email": "updated@example.com",
+                "role_id": 2,
+                "is_active": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "User updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid data"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - Administrator role required"
+          },
+          "404": {
+            "description": "User not found"
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Users"],
+        "summary": "Delete user account",
+        "description": "Permanently deletes a user account. This action cannot be undone.\n\n**Required Role**: Administrator\n\n**Note**: You cannot delete your own account.",
+        "operationId": "deleteUser",
+        "security": [{"bearerAuth": []}],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Unique user identifier",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 2
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User deleted successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse"
+                },
+                "example": {
+                  "message": "User deleted successfully"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Cannot delete own account"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - Administrator role required"
+          },
+          "404": {
+            "description": "User not found"
+          }
+        }
+      }
+    },
+    "/api/v1/users/{id}/reset-password": {
+      "post": {
+        "tags": ["Users"],
+        "summary": "Reset user password",
+        "description": "Resets the password for a specific user account. Use this when a user has forgotten their password.\n\n**Required Role**: Administrator",
+        "operationId": "resetUserPassword",
+        "security": [{"bearerAuth": []}],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Unique user identifier",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 2
+          }
+        ],
+        "requestBody": {
+          "description": "New password",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["new_password"],
+                "properties": {
+                  "new_password": {
+                    "type": "string",
+                    "minLength": 6,
+                    "description": "New password for the user (minimum 6 characters)"
+                  }
+                }
+              },
+              "example": {
+                "new_password": "newSecurePassword123"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Password reset successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Password does not meet requirements"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - Administrator role required"
+          },
+          "404": {
+            "description": "User not found"
+          }
+        }
+      }
+    },
+    "/api/v1/roles": {
+      "get": {
+        "tags": ["Roles"],
+        "summary": "List all roles",
+        "description": "Retrieves a list of all available roles with their permissions.\n\n**Required Role**: Administrator",
+        "operationId": "getRoleList",
+        "security": [{"bearerAuth": []}],
+        "responses": {
+          "200": {
+            "description": "Role list retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Role"
+                  }
+                },
+                "example": [
+                  {
+                    "ID": 1,
+                    "Name": "Administrator",
+                    "Description": "Full system access",
+                    "Permissions": "users:read,users:write,roles:read,roles:write,sims:read,sims:write"
+                  },
+                  {
+                    "ID": 2,
+                    "Name": "Moderator",
+                    "Description": "SIM management access",
+                    "Permissions": "sims:read,sims:write"
+                  },
+                  {
+                    "ID": 3,
+                    "Name": "Viewer",
+                    "Description": "Read-only access",
+                    "Permissions": "sims:read"
+                  }
+                ]
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - Administrator role required"
+          }
+        }
+      },
+      "post": {
+        "tags": ["Roles"],
+        "summary": "Create new role",
+        "description": "Creates a new role with specified permissions.\n\n**Required Role**: Administrator\n\n### Permission Format\nPermissions are specified as a comma-separated string:\n- `sims:read` - View SIM data\n- `sims:write` - Modify SIM data\n- `users:read` - View user accounts\n- `users:write` - Manage user accounts\n- `roles:read` - View roles\n- `roles:write` - Manage roles",
+        "operationId": "createRole",
+        "security": [{"bearerAuth": []}],
+        "requestBody": {
+          "description": "Role details",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRoleRequest"
+              },
+              "example": {
+                "name": "Operator",
+                "description": "Can view and modify SIM cards",
+                "permissions": "sims:read,sims:write"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Role created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Role"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid data or role name already exists"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - Administrator role required"
+          }
+        }
+      }
+    },
+    "/api/v1/roles/{id}": {
+      "get": {
+        "tags": ["Roles"],
+        "summary": "Get role by ID",
+        "description": "Retrieves detailed information for a specific role.\n\n**Required Role**: Administrator",
+        "operationId": "getRoleById",
+        "security": [{"bearerAuth": []}],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Unique role identifier",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Role"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - Administrator role required"
+          },
+          "404": {
+            "description": "Role not found"
+          }
+        }
+      },
+      "put": {
+        "tags": ["Roles"],
+        "summary": "Update role",
+        "description": "Updates an existing role's name, description, or permissions.\n\n**Required Role**: Administrator\n\n**Note**: Modifying permissions affects all users assigned to this role.",
+        "operationId": "updateRole",
+        "security": [{"bearerAuth": []}],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Unique role identifier",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 2
+          }
+        ],
+        "requestBody": {
+          "description": "Fields to update",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRoleRequest"
+              },
+              "example": {
+                "description": "Updated description",
+                "permissions": "sims:read,sims:write,jobs:read"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Role updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid data"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - Administrator role required"
+          },
+          "404": {
+            "description": "Role not found"
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Roles"],
+        "summary": "Delete role",
+        "description": "Deletes a role from the system.\n\n**Required Role**: Administrator\n\n**Note**: Cannot delete a role that is currently assigned to one or more users. Reassign users to a different role first.",
+        "operationId": "deleteRole",
+        "security": [{"bearerAuth": []}],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Unique role identifier",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 4
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role deleted successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - Administrator role required"
+          },
+          "404": {
+            "description": "Role not found"
+          },
+          "409": {
+            "description": "Conflict - Role is assigned to users and cannot be deleted"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "JSON Web Token authentication. Obtain a token via POST /api/v1/auth/login and include it in the Authorization header."
+      }
+    },
+    "schemas": {
+      "LoginRequest": {
+        "type": "object",
+        "required": ["username", "password"],
+        "properties": {
+          "username": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Account username",
+            "example": "admin"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "minLength": 1,
+            "description": "Account password",
+            "example": "admin123"
+          }
+        }
+      },
+      "LoginResponse": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "JWT authentication token (valid for 24 hours)"
+          },
+          "user": {
+            "$ref": "#/components/schemas/User"
+          }
+        }
+      },
+      "ChangePasswordRequest": {
+        "type": "object",
+        "required": ["old_password", "new_password"],
+        "properties": {
+          "old_password": {
+            "type": "string",
+            "format": "password",
+            "description": "Current password for verification"
+          },
+          "new_password": {
+            "type": "string",
+            "format": "password",
+            "minLength": 6,
+            "description": "New password (minimum 6 characters)"
+          }
+        }
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Unique user identifier",
+            "example": 1
+          },
+          "username": {
+            "type": "string",
+            "description": "Account username",
+            "example": "admin"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "User email address",
+            "example": "admin@example.com"
+          },
+          "role_id": {
+            "type": "integer",
+            "description": "Assigned role identifier",
+            "example": 1
+          },
+          "role_name": {
+            "type": "string",
+            "description": "Name of the assigned role",
+            "example": "Administrator"
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "Account active status",
+            "example": true
+          },
+          "last_seen": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Last login or activity timestamp",
+            "example": "2024-01-15T10:30:00Z"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Account creation timestamp",
+            "example": "2024-01-01T00:00:00Z"
+          }
+        }
+      },
+      "CreateUserRequest": {
+        "type": "object",
+        "required": ["username", "password", "role_id"],
+        "properties": {
+          "username": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 50,
+            "pattern": "^[a-zA-Z0-9_]+$",
+            "description": "Unique username (alphanumeric and underscore only)"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "minLength": 6,
+            "description": "Account password (minimum 6 characters)"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "User email address (optional)"
+          },
+          "role_id": {
+            "type": "integer",
+            "description": "Role to assign to the user"
+          }
+        }
+      },
+      "UpdateUserRequest": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 50,
+            "description": "New username"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "New email address"
+          },
+          "role_id": {
+            "type": "integer",
+            "description": "New role assignment"
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "Account active status"
+          }
+        }
+      },
+      "Role": {
+        "type": "object",
+        "properties": {
+          "ID": {
+            "type": "integer",
+            "description": "Unique role identifier",
+            "example": 1
+          },
+          "Name": {
+            "type": "string",
+            "description": "Role name",
+            "example": "Administrator"
+          },
+          "Description": {
+            "type": "string",
+            "description": "Role description",
+            "example": "Full system access"
+          },
+          "Permissions": {
+            "type": "string",
+            "description": "Comma-separated list of permissions",
+            "example": "users:read,users:write,sims:read,sims:write"
+          }
+        }
+      },
+      "CreateRoleRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50,
+            "description": "Unique role name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "Role description"
+          },
+          "permissions": {
+            "type": "string",
+            "description": "Comma-separated permissions string"
+          }
+        }
+      },
+      "UpdateRoleRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50,
+            "description": "New role name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "New description"
+          },
+          "permissions": {
+            "type": "string",
+            "description": "New permissions string"
+          }
+        }
+      },
+      "SimData": {
+        "type": "object",
+        "description": "SIM card data record from the EyesOnT system",
+        "properties": {
+          "MSISDN": {
+            "type": "string",
+            "description": "Mobile Subscriber ISDN Number in international format (E.164)",
+            "example": "972501234567"
+          },
+          "CLI": {
+            "type": "string",
+            "description": "Calling Line Identification in local format",
+            "example": "0501234567"
+          },
+          "SIM_STATUS_CHANGE": {
+            "type": "string",
+            "description": "Current operational status of the SIM card",
+            "enum": ["Activated", "Suspended", "Terminated"],
+            "example": "Activated"
+          },
+          "RATE_PLAN_FULL_NAME": {
+            "type": "string",
+            "description": "Name of the subscribed rate plan",
+            "example": "IoT Data 2GB"
+          },
+          "RATE_PLAN_CHANGE": {
+            "type": "string",
+            "description": "Rate plan code for modification operations"
+          },
+          "CUSTOMER_LABEL_1": {
+            "type": "string",
+            "description": "First customer-defined label field",
+            "example": "GPS-Tracker-001"
+          },
+          "CUSTOMER_LABEL_2": {
+            "type": "string",
+            "description": "Second customer-defined label field",
+            "example": "Fleet-A"
+          },
+          "CUSTOMER_LABEL_3": {
+            "type": "string",
+            "description": "Third customer-defined label field",
+            "example": "Region-North"
+          },
+          "SIM_SWAP": {
+            "type": "string",
+            "description": "ICCID - Integrated Circuit Card Identifier (SIM serial number)",
+            "example": "8997251234567890123"
+          },
+          "IMSI": {
+            "type": "string",
+            "description": "International Mobile Subscriber Identity",
+            "example": "425011234567890"
+          },
+          "IMEI": {
+            "type": "string",
+            "description": "International Mobile Equipment Identity of the connected device",
+            "example": "353456789012345"
+          },
+          "APN_NAME": {
+            "type": "string",
+            "description": "Access Point Name for data connectivity",
+            "example": "internet.pelephone.net.il"
+          },
+          "IP1": {
+            "type": "string",
+            "description": "Assigned IP address (if static)",
+            "example": "10.0.0.100"
+          },
+          "MONTHLY_USAGE_MB": {
+            "type": "string",
+            "description": "Data usage for current billing period in megabytes",
+            "example": "245.5"
+          },
+          "ALLOCATED_MB": {
+            "type": "string",
+            "description": "Data quota allocation in megabytes",
+            "example": "2048"
+          },
+          "LAST_SESSION_TIME": {
+            "type": "string",
+            "description": "Timestamp of the last data session",
+            "example": "2024-01-15 10:30:00"
+          },
+          "IN_SESSION": {
+            "type": "string",
+            "description": "Current session status (Yes/No)",
+            "example": "Yes"
+          },
+          "EFFECTIVE_DATE": {
+            "type": "string",
+            "description": "Date when the current configuration became effective",
+            "example": "01/01/2024"
+          },
+          "IS_POOLED": {
+            "type": "string",
+            "description": "Whether the SIM participates in data pooling",
+            "enum": ["Yes", "No"],
+            "example": "No"
+          }
+        }
+      },
+      "SimListResponse": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "description": "Operation result status",
+            "enum": ["SUCCESS", "ERROR"],
+            "example": "SUCCESS"
+          },
+          "count": {
+            "type": "integer",
+            "description": "Total number of matching records (for pagination)",
+            "example": 50
+          },
+          "data": {
+            "type": "array",
+            "description": "Array of SIM card records",
+            "items": {
+              "$ref": "#/components/schemas/SimData"
+            }
+          }
+        }
+      },
+      "UpdateSimRequest": {
+        "type": "object",
+        "required": ["msisdn"],
+        "properties": {
+          "msisdn": {
+            "type": "string",
+            "description": "Target SIM MSISDN (international format)",
+            "example": "972501234567"
+          },
+          "label1": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "New value for CUSTOMER_LABEL_1"
+          },
+          "label2": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "New value for CUSTOMER_LABEL_2"
+          },
+          "label3": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "New value for CUSTOMER_LABEL_3"
+          }
+        }
+      },
+      "BulkStatusRequest": {
+        "type": "object",
+        "required": ["status", "msisdns"],
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Target status to apply to all specified SIMs",
+            "enum": ["Activated", "Suspended"],
+            "example": "Suspended"
+          },
+          "msisdns": {
+            "type": "array",
+            "description": "List of MSISDN numbers to update",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 100,
+            "example": ["972501234567", "972501234568"]
+          }
+        }
+      },
+      "BulkStatusResponse": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "description": "Operation submission result",
+            "example": "SUCCESS"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable result message",
+            "example": "Status change job created"
+          },
+          "requestId": {
+            "type": "integer",
+            "description": "Job ID for tracking the operation progress",
+            "example": 857512
+          }
+        }
+      },
+      "UpdateResponse": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "description": "Operation result status",
+            "example": "SUCCESS"
+          },
+          "requestId": {
+            "type": "integer",
+            "description": "Job ID for tracking the update operation",
+            "example": 857513
+          }
+        }
+      },
+      "Job": {
+        "type": "object",
+        "description": "Provisioning job record representing an asynchronous operation",
+        "properties": {
+          "jobId": {
+            "type": "integer",
+            "description": "Unique job identifier",
+            "example": 857510
+          },
+          "status": {
+            "type": "string",
+            "description": "Overall job execution status",
+            "enum": ["PENDING", "IN_PROGRESS", "SUCCESS", "PARTIAL_SUCCESS", "FAILED"],
+            "example": "SUCCESS"
+          },
+          "requestTime": {
+            "type": "integer",
+            "description": "Job creation timestamp (Unix epoch milliseconds)",
+            "example": 1705312200000
+          },
+          "lastActionTime": {
+            "type": "integer",
+            "description": "Last status update timestamp (Unix epoch milliseconds)",
+            "example": 1705312205000
+          },
+          "requestedApplication": {
+            "type": "string",
+            "description": "Source application that initiated the job",
+            "example": "API"
+          },
+          "actions": {
+            "type": "array",
+            "description": "Individual actions within this job",
+            "items": {
+              "$ref": "#/components/schemas/JobAction"
+            }
+          }
+        }
+      },
+      "JobAction": {
+        "type": "object",
+        "description": "Individual action within a provisioning job",
+        "properties": {
+          "requestType": {
+            "type": "string",
+            "description": "Type of provisioning action",
+            "example": "SIM_STATE_CHANGE"
+          },
+          "neId": {
+            "type": "string",
+            "description": "Network Element ID (typically CLI)",
+            "example": "0501234567"
+          },
+          "initialValue": {
+            "type": "string",
+            "description": "Value before the operation",
+            "example": "Activated"
+          },
+          "targetValue": {
+            "type": "string",
+            "description": "Target value for the operation",
+            "example": "Suspended"
+          },
+          "status": {
+            "type": "string",
+            "description": "Action execution status",
+            "enum": ["PENDING", "SUCCESS", "FAILED"],
+            "example": "SUCCESS"
+          },
+          "errorDesc": {
+            "type": "string",
+            "description": "Error description (if status is FAILED) or success message",
+            "example": "Success"
+          },
+          "completionTime": {
+            "type": "integer",
+            "description": "Action completion timestamp (Unix epoch)",
+            "example": 1705312205
+          }
+        }
+      },
+      "JobsResponse": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "description": "Operation result status",
+            "example": "SUCCESS"
+          },
+          "count": {
+            "type": "integer",
+            "description": "Total number of jobs matching the filter criteria",
+            "example": 150
+          },
+          "jobs": {
+            "type": "array",
+            "description": "Array of job records",
+            "items": {
+              "$ref": "#/components/schemas/Job"
+            }
+          }
+        }
+      },
+      "StatsResponse": {
+        "type": "object",
+        "description": "Aggregated SIM statistics",
+        "properties": {
+          "total": {
+            "type": "integer",
+            "description": "Total number of SIM cards",
+            "example": 50
+          },
+          "activated": {
+            "type": "integer",
+            "description": "Number of activated SIMs",
+            "example": 35
+          },
+          "suspended": {
+            "type": "integer",
+            "description": "Number of suspended SIMs",
+            "example": 12
+          },
+          "terminated": {
+            "type": "integer",
+            "description": "Number of terminated SIMs",
+            "example": 3
+          },
+          "cached": {
+            "type": "boolean",
+            "description": "Indicates if response was served from cache",
+            "example": true
+          },
+          "cache_age_seconds": {
+            "type": "integer",
+            "description": "Age of cached data in seconds (0 if fresh)",
+            "example": 127
+          }
+        }
+      },
+      "ApiStatusResponse": {
+        "type": "object",
+        "description": "Upstream API connection status",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Connection status",
+            "enum": ["connected", "error"],
+            "example": "connected"
+          },
+          "details": {
+            "type": "object",
+            "description": "Connection details (present when status is connected)",
+            "properties": {
+              "api_url": {
+                "type": "string",
+                "description": "Upstream API base URL",
+                "example": "https://eot-portal.pelephone.co.il:8888"
+              },
+              "api_user": {
+                "type": "string",
+                "description": "API authentication username",
+                "example": "apiuser"
+              },
+              "total_sims": {
+                "type": "string",
+                "description": "Total SIM count from upstream API",
+                "example": "50"
+              },
+              "cache_age": {
+                "type": "string",
+                "description": "Cache age in seconds",
+                "example": "127"
+              }
+            }
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message (present when status is error)",
+            "example": "Connection timeout"
+          }
+        }
+      },
+      "SuccessResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "Success message",
+            "example": "Operation completed successfully"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Error message describing what went wrong",
+            "example": "Invalid request parameters"
+          }
+        }
+      }
+    }
+  }
+}

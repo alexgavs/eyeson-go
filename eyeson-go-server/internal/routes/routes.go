@@ -63,6 +63,12 @@ func SetupRoutes(app *fiber.App) {
 	stats.Use(handlers.JWTMiddleware)
 	stats.Get("/", handlers.GetStats)
 
+	// API Status route (Admin only - shows API tokens and connection info)
+	apiStatus := api.Group("/api-status")
+	apiStatus.Use(handlers.JWTMiddleware)
+	apiStatus.Use(handlers.RequireRole("Administrator"))
+	apiStatus.Get("/", handlers.GetAPIStatus)
+
 	// Jobs routes (protected - All roles)
 	jobs := api.Group("/jobs")
 	jobs.Use(handlers.JWTMiddleware)
@@ -71,6 +77,14 @@ func SetupRoutes(app *fiber.App) {
 	// Статические файлы
 	app.Static("/assets", "./static/assets")
 	app.Static("/", "./static")
+
+	// Swagger documentation
+	app.Get("/api/docs", func(c *fiber.Ctx) error {
+		return c.Redirect("/swagger.html")
+	})
+	app.Get("/docs", func(c *fiber.Ctx) error {
+		return c.Redirect("/swagger.html")
+	})
 
 	// Redirect root to React dashboard
 	app.Get("/", func(c *fiber.Ctx) error {

@@ -1,345 +1,359 @@
 # 📐 EyesOn Project Structure
 
-## Обзор архитектуры
+> Last Updated: January 26, 2026
+
+## Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         CLIENT (Browser)                        │
-│                    React SPA + Bootstrap 5                      │
-└───────────────────────────────┬─────────────────────────────────┘
-                                │ HTTP/REST
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      GO FIBER SERVER (:3000)                    │
-│  ┌───────────┐  ┌──────────┐  ┌──────────┐  ┌───────────────┐  │
-│  │  Routes   │→ │Middleware│→ │ Handlers │→ │   Database    │  │
-│  │ (routes/) │  │  (JWT)   │  │(handlers)│  │    (GORM)     │  │
-│  └───────────┘  └──────────┘  └──────────┘  └───────────────┘  │
-└───────────────────────────────┬─────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      SQLite (eyeson.db)                         │
-│   ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────────────┐   │
-│   │  Users  │  │  Roles  │  │SIM Cards│  │ Activity Logs   │   │
-│   └─────────┘  └─────────┘  └─────────┘  └─────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           EYESON PROJECT                                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│   eyeson-go-server/          eyeson-gui/                                │
+│   ┌─────────────────┐        ┌─────────────────┐                        │
+│   │   Go Backend    │        │ React Frontend  │                        │
+│   │   Fiber v2.52   │        │   TypeScript    │                        │
+│   │   Port: 5000    │        │   Vite Build    │                        │
+│   └────────┬────────┘        └────────┬────────┘                        │
+│            │                          │                                  │
+│            │         npm run build    │                                  │
+│            │     ←─────────────────── │                                  │
+│            │       (copy to static)   │                                  │
+│            │                          │                                  │
+│   ┌────────▼────────┐                                                   │
+│   │  static/ folder │                                                   │
+│   │  (serves SPA)   │                                                   │
+│   └─────────────────┘                                                   │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 📁 Структура директорий
-
-### Go Backend (`eyeson-go-server/`)
+## 📁 Complete Directory Structure
 
 ```
-eyeson-go-server/
-├── cmd/
-│   └── server/
-│       └── main.go           # Entry point, запуск сервера
+eyeson-go/
 │
-├── internal/
-│   ├── database/
-│   │   └── db.go             # Подключение к SQLite, seed данные
+├── 📄 AGENT_SKILLS.md          # AI Agent knowledge & methodology
+├── 📄 ARCHITECTURE.md          # System architecture documentation
+├── 📄 PROJECT_STRUCTURE.md     # This file
+├── 📄 README.md                # Quick start guide
+│
+├── 📂 eyeson-go-server/        # ══════ GO BACKEND ══════
 │   │
-│   ├── handlers/
-│   │   ├── auth.go           # Login, Logout, User CRUD
-│   │   ├── dashboard.go      # Dashboard статистика
-│   │   ├── jobs.go           # Jobs API
-│   │   ├── middleware.go     # JWT validation, Role check
-│   │   ├── roles.go          # Roles API
-│   │   ├── sims.go           # SIM Cards API
-│   │   └── (other handlers)
+│   ├── 📂 cmd/
+│   │   └── 📂 server/
+│   │       └── 📄 main.go      # Entry point
+│   │                           # - Initialize config
+│   │                           # - Connect database
+│   │                           # - Setup routes
+│   │                           # - Start Fiber server
 │   │
-│   ├── models/
-│   │   └── db.go             # GORM модели (User, Role, SIM, etc.)
+│   ├── 📂 internal/
+│   │   │
+│   │   ├── 📂 config/
+│   │   │   └── 📄 config.go    # Application configuration
+│   │   │                       # - ServerPort (5000)
+│   │   │                       # - JWTSecret
+│   │   │                       # - EyesOnT credentials
+│   │   │
+│   │   ├── 📂 database/
+│   │   │   └── 📄 db.go        # Database setup
+│   │   │                       # - SQLite connection
+│   │   │                       # - GORM AutoMigrate
+│   │   │                       # - Seed default data
+│   │   │
+│   │   ├── 📂 eyesont/
+│   │   │   └── 📄 client.go    # Pelephone API client
+│   │   │                       # - GetProvisioningData
+│   │   │                       # - UpdateProvisioningData
+│   │   │                       # - GetJobList
+│   │   │
+│   │   ├── 📂 handlers/
+│   │   │   ├── 📄 auth.go      # Authentication handlers
+│   │   │   │                   # - Login
+│   │   │   │                   # - GetUsers, CreateUser
+│   │   │   │                   # - UpdateUser, DeleteUser
+│   │   │   │                   # - ResetPassword, ChangePassword
+│   │   │   │
+│   │   │   ├── 📄 middleware.go # Middleware functions
+│   │   │   │                   # - AuthRequired (JWT validation)
+│   │   │   │                   # - RequireRole (RBAC)
+│   │   │   │
+│   │   │   ├── 📄 roles.go     # Role handlers
+│   │   │   │                   # - GetRoles, GetRole
+│   │   │   │                   # - CreateRole, UpdateRole
+│   │   │   │                   # - DeleteRole
+│   │   │   │
+│   │   │   ├── 📄 sims.go      # SIM handlers
+│   │   │   │                   # - GetSims (list, filter, sort)
+│   │   │   │                   # - UpdateSim (labels)
+│   │   │   │                   # - BulkChangeStatus
+│   │   │   │
+│   │   │   ├── 📄 jobs.go      # Job handlers
+│   │   │   │                   # - GetJobs (history)
+│   │   │   │
+│   │   │   └── 📄 stats.go     # Statistics handlers
+│   │   │                       # - GetStats (SIM counts)
+│   │   │                       # - GetApiStatus (connection check)
+│   │   │
+│   │   ├── 📂 models/
+│   │   │   ├── 📄 db.go        # GORM models
+│   │   │   │                   # - User, Role, ActivityLog
+│   │   │   │
+│   │   │   └── 📄 api.go       # API structures
+│   │   │                       # - EyesOnT request/response types
+│   │   │
+│   │   └── 📂 routes/
+│   │       └── 📄 routes.go    # Route definitions
+│   │                           # - 47 handlers total
+│   │                           # - Public: login, static
+│   │                           # - Protected: API routes
+│   │                           # - Admin: users, roles
 │   │
-│   └── routes/
-│       └── routes.go         # Все маршруты API
+│   ├── 📂 static/              # ══════ STATIC FILES ══════
+│   │   │
+│   │   ├── 📄 index.html       # React SPA entry point
+│   │   ├── 📄 swagger.html     # Swagger UI page
+│   │   ├── 📄 swagger.json     # OpenAPI 3.0 specification
+│   │   │
+│   │   ├── 📂 assets/          # Vite build output
+│   │   │   ├── 📄 index-*.js   # JavaScript bundles
+│   │   │   └── 📄 index-*.css  # CSS bundles
+│   │   │
+│   │   └── 📂 locales/         # Internationalization
+│   │       ├── 📄 en.json      # English strings
+│   │       └── 📄 ru.json      # Russian strings
+│   │
+│   ├── 📄 eyeson.db            # SQLite database (auto-created)
+│   ├── 📄 server.exe           # Compiled binary (Windows)
+│   ├── 📄 go.mod               # Go module definition
+│   └── 📄 go.sum               # Go dependencies lock
 │
-├── static/                   # Frontend build (копируется из dist/)
-│   ├── index.html
-│   ├── assets/
-│   │   ├── index-*.js
-│   │   └── index-*.css
-│   └── (другие файлы)
-│
-├── eyeson.db                 # SQLite база (создаётся автоматически)
-├── go.mod
-└── go.sum
-```
-
-### React Frontend (`eyeson-gui/frontend/`)
-
-```
-eyeson-gui/frontend/
-├── src/
-│   ├── App.tsx               # Главный компонент (~2000 строк)
-│   ├── api.ts                # API функции и типы
-│   ├── main.tsx              # Entry point
-│   └── App.css               # Стили
-│
-├── public/
-│   └── (статические файлы)
-│
-├── dist/                     # Build output (npm run build)
-│
-├── index.html
-├── package.json
-├── tsconfig.json
-└── vite.config.ts
+└── 📂 eyeson-gui/              # ══════ REACT FRONTEND ══════
+    │
+    ├── 📄 app.go               # Wails Go backend (optional)
+    ├── 📄 main.go              # Wails entry point (optional)
+    ├── 📄 wails.json           # Wails configuration
+    │
+    └── 📂 frontend/
+        │
+        ├── 📂 src/
+        │   ├── 📄 App.tsx      # Main React component
+        │   │                   # - ~2500 lines
+        │   │                   # - All views in single file
+        │   │                   # - State management
+        │   │                   # - Theme system
+        │   │
+        │   ├── 📄 api.ts       # API client
+        │   │                   # - TypeScript interfaces
+        │   │                   # - Fetch wrappers
+        │   │
+        │   ├── 📄 index.css    # Styles
+        │   │                   # - VS Code Dark+ theme
+        │   │                   # - VS Code Light+ theme
+        │   │                   # - Bootstrap overrides
+        │   │
+        │   └── 📄 main.tsx     # React entry point
+        │
+        ├── 📂 dist/            # Build output (npm run build)
+        │   ├── 📄 index.html
+        │   └── 📂 assets/
+        │
+        ├── 📄 index.html       # Development template
+        ├── 📄 package.json     # NPM dependencies
+        ├── 📄 tsconfig.json    # TypeScript config
+        └── 📄 vite.config.ts   # Vite configuration
 ```
 
 ---
 
-## 🗃️ Модели данных
+## 🗃️ Database Schema
 
-### User
-```go
-type User struct {
-    ID        uint      `gorm:"primaryKey"`
-    Username  string    `gorm:"unique;not null"`
-    Email     string    `gorm:"unique"`
-    Password  string    `gorm:"not null"` // bcrypt hash
-    RoleID    uint      `gorm:"not null"`
-    Role      Role      `gorm:"foreignKey:RoleID"`
-    IsActive  bool      `gorm:"default:true"`
-    CreatedAt time.Time
-    UpdatedAt time.Time
-}
+### Tables
+
+```sql
+-- users table
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    email TEXT,
+    password_hash TEXT NOT NULL,
+    role_id INTEGER REFERENCES roles(id),
+    is_active BOOLEAN DEFAULT true,
+    last_seen DATETIME,
+    created_at DATETIME,
+    updated_at DATETIME,
+    deleted_at DATETIME
+);
+
+-- roles table
+CREATE TABLE roles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    description TEXT,
+    permissions TEXT
+);
+
+-- activity_logs table
+CREATE TABLE activity_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER REFERENCES users(id),
+    action TEXT NOT NULL,
+    details TEXT,
+    ip_address TEXT,
+    created_at DATETIME
+);
 ```
 
-### Role
-```go
-type Role struct {
-    ID          uint   `gorm:"primaryKey"`
-    Name        string `gorm:"unique;not null"`
-    Description string
-    CreatedAt   time.Time
-    UpdatedAt   time.Time
-}
+### Default Data
 
-// Seed данные:
-// 1. Administrator - полный доступ
-// 2. Moderator - редактирование
-// 3. Viewer - только чтение
-```
+```yaml
+roles:
+  - id: 1, name: Administrator, permissions: (full access)
+  - id: 2, name: Moderator, permissions: sims:read,sims:write,jobs:read
+  - id: 3, name: Viewer, permissions: sims:read
 
-### SIM Card
-```go
-type SIMCard struct {
-    ID        uint      `gorm:"primaryKey"`
-    ICCID     string    `gorm:"unique;not null"`
-    MSISDN    string
-    IMSI      string
-    Status    string    `gorm:"default:'inactive'"`
-    Provider  string
-    Data      string    // JSON metadata
-    CreatedAt time.Time
-    UpdatedAt time.Time
-}
-```
-
-### Job
-```go
-type Job struct {
-    ID        uint      `gorm:"primaryKey"`
-    Name      string    `gorm:"not null"`
-    Status    string    `gorm:"default:'pending'"`
-    Progress  int       `gorm:"default:0"`
-    Data      string    // JSON payload
-    CreatedAt time.Time
-    UpdatedAt time.Time
-}
+users:
+  - username: admin, password: admin123, role: Administrator
 ```
 
 ---
 
-## 🔌 API Endpoints
+## 🔗 Route Map
 
-### Публичные (без авторизации)
-| Method | Endpoint | Описание |
-|--------|----------|----------|
-| GET | `/` | Главная страница (React SPA) |
-| POST | `/api/v1/auth/login` | Авторизация |
+### Public Routes (No Auth)
 
-### Защищённые (требуют JWT)
-| Method | Endpoint | Roles | Описание |
-|--------|----------|-------|----------|
-| POST | `/api/v1/auth/logout` | Any | Выход |
-| GET | `/api/v1/dashboard/summary` | Any | Статистика |
-| GET | `/api/v1/sims` | Any | Список SIM |
-| GET | `/api/v1/sims/:id` | Any | Детали SIM |
-| POST | `/api/v1/sims` | Admin/Mod | Создать SIM |
-| PUT | `/api/v1/sims/:id` | Admin/Mod | Обновить SIM |
-| DELETE | `/api/v1/sims/:id` | Admin | Удалить SIM |
-| GET | `/api/v1/jobs` | Any | Список Jobs |
-| GET | `/api/v1/users` | Admin | Список пользователей |
-| POST | `/api/v1/users` | Admin | Создать пользователя |
-| PUT | `/api/v1/users/:id` | Admin | Обновить пользователя |
-| DELETE | `/api/v1/users/:id` | Admin | Удалить пользователя |
-| POST | `/api/v1/users/:id/reset-password` | Admin | Сброс пароля |
-| GET | `/api/v1/roles` | Admin | Список ролей |
+| Method | Path | Handler | Description |
+|--------|------|---------|-------------|
+| POST | /api/v1/auth/login | Login | Authenticate user |
+| GET | /docs | redirect | Swagger UI |
+| GET | /api/docs | redirect | Swagger UI (alt) |
+| GET | /swagger.json | static | OpenAPI spec |
+| GET | /* | static | React SPA |
+
+### Protected Routes (JWT Required)
+
+| Method | Path | Handler | Role |
+|--------|------|---------|------|
+| GET | /api/v1/sims | GetSims | Any |
+| POST | /api/v1/sims/update | UpdateSim | Mod+ |
+| POST | /api/v1/sims/bulk-status | BulkChangeStatus | Mod+ |
+| GET | /api/v1/jobs | GetJobs | Any |
+| GET | /api/v1/stats | GetStats | Any |
+| PUT | /api/v1/auth/change-password | ChangePassword | Any |
+
+### Admin Routes (Administrator Only)
+
+| Method | Path | Handler |
+|--------|------|---------|
+| GET | /api/v1/users | GetUsers |
+| POST | /api/v1/users | CreateUser |
+| PUT | /api/v1/users/:id | UpdateUser |
+| DELETE | /api/v1/users/:id | DeleteUser |
+| POST | /api/v1/users/:id/reset-password | ResetPassword |
+| GET | /api/v1/roles | GetRoles |
+| GET | /api/v1/roles/:id | GetRole |
+| POST | /api/v1/roles | CreateRole |
+| PUT | /api/v1/roles/:id | UpdateRole |
+| DELETE | /api/v1/roles/:id | DeleteRole |
+| GET | /api/v1/api-status | GetApiStatus |
 
 ---
 
-## 🔐 Аутентификация
+## 📦 Dependencies
 
-### JWT Token Flow
+### Go (go.mod)
 
+```go
+module eyeson-go-server
+
+require (
+    github.com/gofiber/fiber/v2 v2.52.10
+    github.com/golang-jwt/jwt/v5
+    golang.org/x/crypto // bcrypt
+    gorm.io/gorm
+    gorm.io/driver/sqlite
+)
 ```
-1. POST /api/v1/auth/login
-   Body: { "username": "admin", "password": "admin" }
-   Response: { "token": "eyJhbG...", "user": {...} }
 
-2. Сохранить token в localStorage
+### React (package.json)
 
-3. Все защищённые запросы:
-   Header: Authorization: Bearer <token>
-
-4. При ошибке 401 → перенаправить на login
-```
-
-### Token Structure
 ```json
 {
-  "user_id": 1,
-  "username": "admin",
-  "role": "Administrator",
-  "exp": 1234567890  // 24 часа
-}
-```
-
----
-
-## ⚛️ Frontend архитектура
-
-### Навигация (NavPage type)
-```typescript
-type NavPage = 
-  | 'sims'       // Список SIM карт
-  | 'simDetail'  // Детали SIM
-  | 'jobs'       // Список Jobs
-  | 'stats'      // Статистика
-  | 'admin'      // User Management
-  | 'profile';   // Профиль
-```
-
-### Состояния компонента
-```typescript
-// Аутентификация
-const [token, setToken] = useState<string | null>(...)
-const [currentUser, setCurrentUser] = useState<User | null>(...)
-
-// Навигация
-const [navPage, setNavPage] = useState<NavPage>('sims')
-
-// SIM Cards
-const [sims, setSims] = useState<SimCard[]>([])
-const [selectedSim, setSelectedSim] = useState<SimCard | null>(null)
-
-// Jobs
-const [jobs, setJobs] = useState<Job[]>([])
-
-// User Management
-const [users, setUsers] = useState<User[]>([])
-const [roles, setRoles] = useState<Role[]>([])
-const [showUserModal, setShowUserModal] = useState(false)
-const [editingUser, setEditingUser] = useState<User | null>(null)
-```
-
-### Компоненты UI
-```
-App
-├── Login Form (when !token)
-└── Dashboard (when token)
-    ├── Navbar
-    │   └── Tabs: SIMs | Jobs | Statistics | Admin | Profile
-    ├── Toast notifications
-    └── Content area
-        ├── SIM List
-        │   ├── Search/Filters
-        │   ├── Table
-        │   └── Pagination
-        ├── SIM Detail
-        ├── Jobs List
-        ├── Statistics Cards
-        ├── Admin Panel (User Management)
-        │   ├── User Table
-        │   ├── Create/Edit Modal
-        │   └── Reset Password Modal
-        └── Profile
-```
-
----
-
-## 🔧 Конфигурация
-
-### Go Server
-```go
-// Порт из переменной окружения или 3000
-port := os.Getenv("PORT")
-if port == "" {
-    port = "3000"
-}
-
-// Статические файлы
-app.Static("/", "./static")
-```
-
-### Vite
-```typescript
-// vite.config.ts
-export default defineConfig({
-  plugins: [react()],
-  server: {
-    proxy: {
-      '/api': 'http://localhost:3000'  // Proxy в dev режиме
-    }
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "bootstrap": "^5.3.2",
+    "bootstrap-icons": "^1.11.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "typescript": "^5.0.0",
+    "vite": "^4.5.0"
   }
-})
+}
 ```
 
 ---
 
-## 📊 Диаграмма зависимостей
+## 🛠️ Build Commands
 
-```
-┌──────────────┐     ┌──────────────┐
-│   main.go    │────▶│   routes.go  │
-└──────────────┘     └───────┬──────┘
-                             │
-        ┌────────────────────┼────────────────────┐
-        ▼                    ▼                    ▼
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│ middleware.go│     │ handlers/*   │     │ database.go  │
-└──────────────┘     └───────┬──────┘     └───────┬──────┘
-                             │                    │
-                             ▼                    ▼
-                     ┌──────────────┐     ┌──────────────┐
-                     │  models/db   │◀────│   eyeson.db  │
-                     └──────────────┘     └──────────────┘
-```
+### Frontend
 
----
-
-## 🚀 Development Workflow
-
-```bash
-# 1. Запустить Go сервер
-cd eyeson-go-server
-$env:PORT = "3000"
-go run cmd/server/main.go
-
-# 2. Для frontend разработки (hot reload)
+```powershell
 cd eyeson-gui/frontend
-npm run dev  # http://localhost:5173
 
-# 3. Для production build
-npm run build
-Copy-Item -Path "dist/*" -Destination "../../eyeson-go-server/static/" -Recurse -Force
+# Development
+npm run dev              # Start dev server
 
-# 4. Открыть в браузере
-http://127.0.0.1:3000
-Login: admin / admin
+# Production build
+npm run build            # Build to dist/
+
+# Copy to backend
+Copy-Item "dist\*" "..\..\eyeson-go-server\static\" -Recurse -Force
 ```
+
+### Backend
+
+```powershell
+cd eyeson-go-server
+
+# Build
+go build -o server.exe ./cmd/server
+
+# Run
+.\server.exe             # Starts on :5000
+```
+
+### Full Rebuild
+
+```powershell
+# One-liner for full rebuild
+cd eyeson-gui/frontend; npm run build; Copy-Item "dist\*" "..\..\eyeson-go-server\static\" -Recurse -Force; cd ..\..\eyeson-go-server; go build -o server.exe ./cmd/server; .\server.exe
+```
+
+---
+
+## 📝 File Purposes Quick Reference
+
+| File | Purpose |
+|------|---------|
+| `main.go` | Server entry point, startup |
+| `config.go` | Configuration values |
+| `db.go` (database) | DB connection, migrations |
+| `db.go` (models) | GORM model definitions |
+| `client.go` | Pelephone API client |
+| `auth.go` | Authentication handlers |
+| `middleware.go` | JWT/RBAC middleware |
+| `sims.go` | SIM CRUD handlers |
+| `jobs.go` | Job history handlers |
+| `stats.go` | Statistics handlers |
+| `roles.go` | Role CRUD handlers |
+| `routes.go` | All route definitions |
+| `App.tsx` | React main component |
+| `api.ts` | TypeScript API client |
+| `index.css` | Theme styles |
+| `swagger.json` | API documentation |
+| `en.json/ru.json` | Localization |

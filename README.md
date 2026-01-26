@@ -1,53 +1,157 @@
-﻿# EyesOn Go Server
+# EyesOn SIM Management System
 
-SIM Card Management Dashboard built with Go Fiber + React + TypeScript
+A full-stack SIM card management dashboard built with Go (Fiber) and React (TypeScript).
 
-## Quick Start
+![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)
+![React Version](https://img.shields.io/badge/React-18-61DAFB?style=flat&logo=react)
+![License](https://img.shields.io/badge/License-MIT-green.svg)
+
+## 🚀 Quick Start
 
 ```bash
-# 1. Start Go server
+# Start the server
 cd eyeson-go-server
-set PORT=3000
-go run cmd/server/main.go
+.\server.exe
 
-# 2. Open browser
-http://127.0.0.1:3000
-Login: admin / admin
+# Open in browser
+http://127.0.0.1:5000
+
+# Login credentials
+Username: admin
+Password: admin123
 ```
 
-## Project Structure
+## ✨ Features
+
+- **SIM Management** - View, filter, sort, and search SIM cards
+- **Bulk Operations** - Activate/suspend multiple SIMs at once
+- **Job Tracking** - Monitor provisioning job history
+- **User Management** - Create, edit, delete users (Admin)
+- **Role-Based Access** - Administrator, Moderator, Viewer roles
+- **VS Code Themes** - Dark+ and Light+ color schemes
+- **API Documentation** - Swagger UI at `/docs`
+- **Localization** - English and Russian support
+
+## 🏗️ Architecture
+
+```
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│    Browser   │────▶│  Go Server   │────▶│  Pelephone   │
+│  React SPA   │◀────│  Fiber :5000 │◀────│  EyesOnT API │
+└──────────────┘     └──────────────┘     └──────────────┘
+```
+
+## 📁 Project Structure
 
 ```
 eyeson-go/
- eyeson-go-server/      # Go Fiber backend
-    cmd/server/        # Entry point
-    internal/          # Handlers, models, routes
-    static/            # Built React frontend
- eyeson-gui/            # React/TypeScript frontend
-    frontend/
- ARCHITECTURE.md        # Architecture documentation
- AGENT_SKILLS.md        # AI Agent skills & methodology
- PROJECT_STRUCTURE.md   # Detailed project structure
+├── eyeson-go-server/      # Go Fiber backend
+│   ├── cmd/server/        # Entry point
+│   ├── internal/          # Handlers, models, routes
+│   └── static/            # React build + Swagger
+├── eyeson-gui/            # React/TypeScript frontend
+│   └── frontend/
+├── ARCHITECTURE.md        # System architecture
+├── AGENT_SKILLS.md        # AI Agent knowledge base
+└── PROJECT_STRUCTURE.md   # Detailed structure
 ```
 
-## Tech Stack
+## 🔧 Tech Stack
 
-- **Backend**: Go 1.21+, Fiber v2.52, GORM, SQLite
-- **Frontend**: React 18, TypeScript, Vite, Bootstrap 5
-- **Auth**: JWT (24h), bcrypt passwords, RBAC
+| Layer | Technology |
+|-------|------------|
+| Backend | Go 1.21+, Fiber v2.52.10, GORM, SQLite |
+| Frontend | React 18, TypeScript, Vite, Bootstrap 5 |
+| Auth | JWT (24h), bcrypt, RBAC |
+| Docs | OpenAPI 3.0, Swagger UI |
 
-## Development
+## 📡 API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | /api/v1/auth/login | Authenticate |
+| GET | /api/v1/sims | List SIMs |
+| POST | /api/v1/sims/bulk-status | Bulk status change |
+| GET | /api/v1/jobs | Job history |
+| GET | /api/v1/stats | Statistics |
+| GET | /docs | Swagger UI |
+
+Full API documentation available at `http://localhost:5000/docs`
+
+## 🛠️ Development
+
+### Prerequisites
+
+- Go 1.21+
+- Node.js 18+
+- npm or yarn
+
+### Build Frontend
 
 ```bash
-# Frontend hot-reload
 cd eyeson-gui/frontend
-npm run dev
-
-# Build frontend for production
+npm install
 npm run build
-xcopy dist\* ..\eyeson-go-server\static\ /E /Y
+
+# Copy to backend
+Copy-Item "dist\*" "..\..\eyeson-go-server\static\" -Recurse -Force
 ```
 
-## API Documentation
+### Build Backend
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for full API reference.
+```bash
+cd eyeson-go-server
+go build -o server.exe ./cmd/server
+.\server.exe
+```
+
+### Full Rebuild (PowerShell)
+
+```powershell
+cd eyeson-gui/frontend
+npm run build
+Copy-Item "dist\*" "..\..\eyeson-go-server\static\" -Recurse -Force
+cd ..\..\eyeson-go-server
+go build -o server.exe ./cmd/server
+.\server.exe
+```
+
+## 🎨 Themes
+
+The application includes VS Code-inspired themes:
+
+- **Dark+** (default) - Dark theme optimized for readability
+- **Light+** - Light theme for bright environments
+
+Toggle in Profile settings or use the theme button in navbar.
+
+## 📖 Documentation
+
+| Document | Description |
+|----------|-------------|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture & API reference |
+| [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) | Detailed file structure |
+| [AGENT_SKILLS.md](AGENT_SKILLS.md) | AI Agent knowledge base |
+| `/docs` | Swagger API documentation |
+
+## 🔐 Default Credentials
+
+| Username | Password | Role |
+|----------|----------|------|
+| admin | admin123 | Administrator |
+
+## 📄 License
+
+MIT License - see [LICENSE](LICENSE) for details.
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Open a Pull Request
+
+---
+
+Built with ❤️ using Go and React
