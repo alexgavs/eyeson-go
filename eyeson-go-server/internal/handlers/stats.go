@@ -136,10 +136,10 @@ func GetStats(c *fiber.Ctx) error {
 
 // APIStatusResponse содержит информацию о статусе API соединений
 type APIStatusResponse struct {
-	EyesOnAPI    APIConnectionInfo `json:"eyeson_api"`
-	GoBackend    APIConnectionInfo `json:"go_backend"`
-	Database     APIConnectionInfo `json:"database"`
-	LastChecked  time.Time         `json:"last_checked"`
+	EyesOnAPI   APIConnectionInfo `json:"eyeson_api"`
+	GoBackend   APIConnectionInfo `json:"go_backend"`
+	Database    APIConnectionInfo `json:"database"`
+	LastChecked time.Time         `json:"last_checked"`
 }
 
 type APIConnectionInfo struct {
@@ -210,15 +210,15 @@ func checkEyesOnAPIConnection() (map[string]string, error) {
 	}
 
 	details := make(map[string]string)
-	
+
 	// Получаем информацию о конфигурации API
 	details["api_url"] = eyesont.Instance.BaseURL
 	details["api_user"] = eyesont.Instance.Username
-	
+
 	// Проверяем кэш статистики - если он есть, значит API работает
 	statsCacheMutex.Lock()
 	defer statsCacheMutex.Unlock()
-	
+
 	if statsCache != nil && time.Since(statsLastUpdate) < 10*time.Minute {
 		details["total_sims"] = fmt.Sprintf("%d", statsCache.Total)
 		details["api_result"] = "SUCCESS"
@@ -226,7 +226,7 @@ func checkEyesOnAPIConnection() (map[string]string, error) {
 		details["cache_age"] = fmt.Sprintf("%ds", int(time.Since(statsLastUpdate).Seconds()))
 		return details, nil
 	}
-	
+
 	// Если кэша нет - делаем легкий запрос с стандартным limit
 	resp, err := eyesont.Instance.GetSims(0, 25, nil, "", "ASC")
 	if err != nil {
@@ -252,6 +252,6 @@ func checkEyesOnAPIConnection() (map[string]string, error) {
 	details["total_sims"] = fmt.Sprintf("%d", resp.Count)
 	details["api_result"] = resp.Result
 	details["status"] = "connected"
-	
+
 	return details, nil
 }

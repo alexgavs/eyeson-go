@@ -92,7 +92,13 @@ export const UpdateSim = async (msisdn: string, field: string, value: string) =>
     }
 };
 
-export const ChangeStatus = async (msisdns: string[], status: string) => {
+export interface ChangeStatusResult {
+    success: boolean;
+    requestId?: number;
+    error?: string;
+}
+
+export const ChangeStatus = async (msisdns: string[], status: string): Promise<ChangeStatusResult> => {
     try {
         const token = localStorage.getItem('token');
         const response = await fetch(`${BASE_URL}/sims/bulk-status`, {
@@ -107,17 +113,37 @@ export const ChangeStatus = async (msisdns: string[], status: string) => {
         const data = await response.json();
         console.log('[ChangeStatus] Response:', response.status, data);
         
-        if (response.ok) return "SUCCESS";
+        if (response.ok && data.result === "SUCCESS") {
+            return { success: true, requestId: data.requestId };
+        }
         
         // Более понятное сообщение об ошибке
-        let errorMsg = data.error || "Status change failed";
+        let errorMsg = data.error || data.message || "Status change failed";
         if (errorMsg.includes("Permission Denied")) {
             errorMsg = "Permission Denied: У API пользователя нет прав на изменение этой SIM-карты";
         }
-        return errorMsg;
+        return { success: false, error: errorMsg };
     } catch (e) {
         console.error('[ChangeStatus] Error:', e);
-        return "Network Error: " + e;
+        return { success: false, error: "Network Error: " + e };
+    }
+};
+
+// Получить статус Job по ID (для polling)
+export const GetJobStatus = async (jobId: number) => {
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${BASE_URL}/jobs?job_id=${jobId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (response.ok && data.data?.length > 0) {
+            return data.data[0]; // Возвращаем первый Job
+        }
+        return null;
+    } catch (e) {
+        console.error('[GetJobStatus] Error:', e);
+        return null;
     }
 };
 

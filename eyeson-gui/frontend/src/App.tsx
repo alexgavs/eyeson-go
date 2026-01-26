@@ -1,7 +1,15 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Login, GetSims, UpdateSim, ChangeStatus, GetJobs, GetUsers, CreateUser, UpdateUser, DeleteUser, ResetUserPassword, GetRoles, GetAPIStatus, APIStatusResponse, User, Role } from './api';
+import { Login, GetSims, UpdateSim, ChangeStatus, GetJobStatus, GetJobs, GetUsers, CreateUser, UpdateUser, DeleteUser, ResetUserPassword, GetRoles, GetAPIStatus, APIStatusResponse, User, Role } from './api';
 
 // ==================== ТИПЫ ====================
+
+interface PendingJob {
+  requestId: number;
+  msisdns: string[];
+  targetStatus: string;
+  startTime: number;
+  attempts: number;
+}
 
 interface PendingStatus {
   msisdn: string;
@@ -196,8 +204,11 @@ function App() {
   const [editMode, setEditMode] = useState(false);
   const [editValues, setEditValues] = useState<any>({});
 
-  // Pending статусы
+  // Pending статусы (legacy - для отображения спиннеров)
   const [pendingStatuses, setPendingStatuses] = useState<Map<string, PendingStatus>>(new Map());
+  
+  // Pending Jobs (новый подход - polling по Job ID)
+  const [pendingJobs, setPendingJobs] = useState<PendingJob[]>([]);
   
   // Jobs - загружаем все и делаем клиентскую пагинацию
   const [allJobs, setAllJobs] = useState<any[]>([]);  // Все jobs с сервера
@@ -384,9 +395,9 @@ function App() {
     }
   }, [isLoggedIn, isCheckingSession]);
 
-  // Polling для проверки статусов
+  // Polling для проверки статусов по Job ID (оптимизированный)
   useEffect(() => {
-    if (pendingStatuses.size === 0) {
+    if (pendingJobs.length === 0) {
       if (pollingRef.current) {
         clearInterval(pollingRef.current);
         pollingRef.current = null;
@@ -395,65 +406,119 @@ function App() {
     }
 
     pollingRef.current = setInterval(async () => {
-      const updatedPending = new Map(pendingStatuses);
+      const updatedJobs: PendingJob[] = [];
       let needsRefresh = false;
 
-      for (const [msisdn, pending] of pendingStatuses) {
-        if (Date.now() - pending.startTime < 2000) continue;
+      for (const job of pendingJobs) {
+        if (Date.now() - job.startTime < 2000) {
+          updatedJobs.push(job);
+          continue;
+        }
 
         try {
-          const response = await GetSims(msisdn, 0, 1);
-          const freshSim = response.data?.find((s: any) => s.MSISDN === msisdn || s.CLI === msisdn);
-          
-          if (freshSim) {
-            const currentStatus = freshSim.SIM_STATUS_CHANGE;
-            console.log(`[Poll ${pending.attempts}/5] ${msisdn}: Expected=${pending.targetStatus}, Got=${currentStatus}`);
+          // Один запрос для проверки всего Job вместо отдельных запросов для каждого MSISDN
+          const jobData = await GetJobStatus(job.requestId);
+          console.log(`[JobPoll ${job.attempts}/10] Job ${job.requestId}: status=${jobData?.jobStatus}`);
 
-            if (currentStatus === pending.targetStatus) {
-              console.log(`✓ Status confirmed: ${currentStatus}`);
-              showToast(`✓ ${msisdn}: статус изменён на ${currentStatus}`, 'success');
-              updatedPending.delete(msisdn);
+          if (jobData) {
+            const jobStatus = jobData.jobStatus;
+
+            if (jobStatus === 'COMPLETED' || jobStatus === 'SUCCESS') {
+              console.log(`✓ Job ${job.requestId} completed successfully`);
+              showToast(`✓ ${job.msisdns.length} SIM: статус изменён на ${job.targetStatus}`, 'success');
+              
+              // Обновляем UI для всех SIM в этом Job
+              setSims(prev => prev.map(s => 
+                job.msisdns.includes(s.MSISDN) ? { ...s, SIM_STATUS_CHANGE: job.targetStatus, _pending: false } : s
+              ));
+              setSelectedSim((prev: any) => 
+                prev && job.msisdns.includes(prev.MSISDN) ? { ...prev, SIM_STATUS_CHANGE: job.targetStatus, _pending: false } : prev
+              );
+              
+              // Убираем из pendingStatuses
+              setPendingStatuses(prev => {
+                const newMap = new Map(prev);
+                job.msisdns.forEach(m => newMap.delete(m));
+                return newMap;
+              });
+              
               needsRefresh = true;
+            } else if (jobStatus === 'PARTIAL_SUCCESS') {
+              console.log(`⚠ Job ${job.requestId} partially succeeded`);
+              showToast(`⚠ Частичный успех: некоторые SIM не обновлены`, 'warning');
+              
               setSims(prev => prev.map(s => 
-                s.MSISDN === msisdn ? { ...s, ...freshSim, _pending: false } : s
+                job.msisdns.includes(s.MSISDN) ? { ...s, _pending: false } : s
               ));
-              // Также обновляем selectedSim если открыто модальное окно для этой SIM
-              setSelectedSim((prev: any) => 
-                prev && prev.MSISDN === msisdn ? { ...prev, ...freshSim, _pending: false } : prev
-              );
-            } else if (pending.attempts >= 5) {
-              console.warn(`✗ Status polling timed out for ${msisdn}`);
-              showToast(`⚠ ${msisdn}: статус не подтверждён (таймаут)`, 'warning');
-              updatedPending.delete(msisdn);
+              setPendingStatuses(prev => {
+                const newMap = new Map(prev);
+                job.msisdns.forEach(m => newMap.delete(m));
+                return newMap;
+              });
+              
+              needsRefresh = true;
+            } else if (jobStatus === 'FAILED') {
+              console.warn(`✗ Job ${job.requestId} failed`);
+              showToast(`✗ Ошибка изменения статуса`, 'danger');
+              
               setSims(prev => prev.map(s => 
-                s.MSISDN === msisdn ? { ...s, _pending: false } : s
+                job.msisdns.includes(s.MSISDN) ? { ...s, _pending: false } : s
               ));
-              // Также обновляем selectedSim при таймауте
-              setSelectedSim((prev: any) => 
-                prev && prev.MSISDN === msisdn ? { ...prev, _pending: false } : prev
-              );
+              setPendingStatuses(prev => {
+                const newMap = new Map(prev);
+                job.msisdns.forEach(m => newMap.delete(m));
+                return newMap;
+              });
+            } else if (job.attempts >= 10) {
+              console.warn(`✗ Job ${job.requestId} polling timeout`);
+              showToast(`⚠ Таймаут ожидания подтверждения`, 'warning');
+              
+              setSims(prev => prev.map(s => 
+                job.msisdns.includes(s.MSISDN) ? { ...s, _pending: false } : s
+              ));
+              setPendingStatuses(prev => {
+                const newMap = new Map(prev);
+                job.msisdns.forEach(m => newMap.delete(m));
+                return newMap;
+              });
             } else {
-              updatedPending.set(msisdn, { ...pending, attempts: pending.attempts + 1 });
+              // Job ещё в процессе - продолжаем polling
+              updatedJobs.push({ ...job, attempts: job.attempts + 1 });
+            }
+          } else {
+            // Job не найден - увеличиваем счётчик попыток
+            if (job.attempts >= 10) {
+              showToast(`⚠ Job ${job.requestId} не найден`, 'warning');
+              setSims(prev => prev.map(s => 
+                job.msisdns.includes(s.MSISDN) ? { ...s, _pending: false } : s
+              ));
+              setPendingStatuses(prev => {
+                const newMap = new Map(prev);
+                job.msisdns.forEach(m => newMap.delete(m));
+                return newMap;
+              });
+            } else {
+              updatedJobs.push({ ...job, attempts: job.attempts + 1 });
             }
           }
         } catch (e) {
-          console.error(`Error polling ${msisdn}:`, e);
-          updatedPending.set(msisdn, { ...pending, attempts: pending.attempts + 1 });
+          console.error(`Error polling job ${job.requestId}:`, e);
+          updatedJobs.push({ ...job, attempts: job.attempts + 1 });
         }
       }
 
-      setPendingStatuses(updatedPending);
+      setPendingJobs(updatedJobs);
       if (needsRefresh) {
         // Перезагружаем статистику
         setStatsLoaded(false);
         setTimeout(() => loadAllSimsForStats(), 2000);
       }
-    }, 2000);
+    }, 3000); // Polling каждые 3 секунды
 
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
-  }, [pendingStatuses]);
+  }, [pendingJobs]);
 
   // ==================== ФУНКЦИИ ====================
 
@@ -822,11 +887,20 @@ function App() {
     
     const result = await ChangeStatus(msisdns, status);
     
-    if (result === "SUCCESS") {
-      showToast(`✓ Запрос отправлен. Ожидание подтверждения...`, 'success');
+    if (result.success && result.requestId) {
+      showToast(`✓ Запрос #${result.requestId} отправлен. Ожидание подтверждения...`, 'success');
       setSelectedSims(new Set());
+      
+      // Добавляем Job в очередь polling
+      setPendingJobs(prev => [...prev, {
+        requestId: result.requestId!,
+        msisdns,
+        targetStatus: status,
+        startTime: Date.now(),
+        attempts: 0
+      }]);
     } else {
-      showToast("Ошибка: " + result, 'danger');
+      showToast("Ошибка: " + (result.error || "Unknown error"), 'danger');
       loadData(pagination.start, pagination.limit);
       const newPending = new Map(pendingStatuses);
       msisdns.forEach(m => newPending.delete(m));
@@ -845,10 +919,19 @@ function App() {
     
     const result = await ChangeStatus([msisdn], status);
     
-    if (result === "SUCCESS") {
-      showToast(`✓ Запрос отправлен. Ожидание подтверждения...`, 'success');
+    if (result.success && result.requestId) {
+      showToast(`✓ Запрос #${result.requestId} отправлен. Ожидание подтверждения...`, 'success');
+      
+      // Добавляем Job в очередь polling
+      setPendingJobs(prev => [...prev, {
+        requestId: result.requestId!,
+        msisdns: [msisdn],
+        targetStatus: status,
+        startTime: Date.now(),
+        attempts: 0
+      }]);
     } else {
-      showToast("Ошибка: " + result, 'danger');
+      showToast("Ошибка: " + (result.error || "Unknown error"), 'danger');
       loadData(pagination.start, pagination.limit);
       setPendingStatuses(prev => {
         const newMap = new Map(prev);
