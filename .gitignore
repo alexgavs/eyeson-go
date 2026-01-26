@@ -20,6 +20,9 @@ eyeson-go-server/tmp/
 eyeson-gui/frontend/node_modules/
 eyeson-gui/frontend/dist/
 
+# Wails build output
+eyeson-gui/build/
+
 # Environment
 .env
 .env.local
