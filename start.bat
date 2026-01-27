@@ -4,31 +4,63 @@ title EyesOn Server
 
 echo ═══════════════════════════════════════════════════════════
 echo              EyesOn SIM Management Server
+echo                Full Build & Start Script
 echo ═══════════════════════════════════════════════════════════
 echo.
 
-cd /d "%~dp0eyeson-go-server"
-
-:: Check if Go is installed
+:: 1. Check Prerequisites
 where go >nul 2>&1
 if %errorlevel% neq 0 (
     echo [ERROR] Go is not installed or not in PATH
     pause
     exit /b 1
 )
-
-:: Build the server
-echo [1/2] Building server...
-go build -o server.exe ./cmd/server
+where npm >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERROR] Build failed!
+    echo [ERROR] Node.js/npm is not installed or not in PATH
     pause
     exit /b 1
 )
-echo [OK] Build successful
 
-:: Start the server
-echo [2/2] Starting server on port 5000...
+:: 2. Build Frontend
+echo [1/3] Building Frontend/UI...
+cd /d "%~dp0eyeson-gui\frontend"
+if not exist "node_modules" (
+    echo       Installing dependencies...
+    call npm install
+)
+echo       Running Vite build...
+call npm run build
+if %errorlevel% neq 0 (
+    echo [ERROR] Frontend build failed!
+    pause
+    exit /b 1
+)
+
+:: 3. Prepare Static Assets
+echo [2/3] Updating Server Static Files...
+cd /d "%~dp0eyeson-go-server"
+if exist "static\assets" (
+    echo       Cleaning old assets...
+    rmdir /s /q "static\assets"
+)
+if not exist "static" mkdir "static"
+if not exist "static\assets" mkdir "static\assets"
+
+echo       Copying new build files...
+xcopy /E /I /Y /Q "%~dp0eyeson-gui\frontend\dist\assets" "static\assets"
+copy /Y "%~dp0eyeson-gui\frontend\dist\index.html" "static\index.html" >nul
+
+:: 4. Build & Start Server
+echo [3/3] Building & Starting Go Server...
+go mod tidy
+go build -o server.exe ./cmd/server
+if %errorlevel% neq 0 (
+    echo [ERROR] Server build failed!
+    pause
+    exit /b 1
+)
+
 echo.
 echo ───────────────────────────────────────────────────────────
 echo   Web UI:     http://localhost:5000

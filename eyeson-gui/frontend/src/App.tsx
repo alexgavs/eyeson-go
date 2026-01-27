@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Login, GetSims, UpdateSim, ChangeStatus, GetJobStatus, GetJobs, GetUsers, CreateUser, UpdateUser, DeleteUser, ResetUserPassword, GetRoles, GetAPIStatus, APIStatusResponse, User, Role } from './api';
+import { Login, GetSims, GetStats, UpdateSim, ChangeStatus, GetJobStatus, GetJobs, GetUsers, CreateUser, UpdateUser, DeleteUser, ResetUserPassword, GetRoles, GetAPIStatus, APIStatusResponse, User, Role } from './api';
 
 // ==================== ТИПЫ ====================
 
@@ -188,6 +188,9 @@ function App() {
   const [sims, setSims] = useState<any[]>([]);  // Текущая страница
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  
+  // Stats
+  const [serverStats, setServerStats] = useState<any>(null);
   const [statsLoaded, setStatsLoaded] = useState(false);
   
   // Фильтры и сортировка
@@ -389,8 +392,8 @@ function App() {
     if (isLoggedIn && !isCheckingSession) {
       // Сначала загружаем текущую страницу SIM данных
       loadData(0, pagination.limit).then(() => {
-        // Через 3 секунды загружаем все данные для статистики
-        setTimeout(() => loadAllSimsForStats(), 3000);
+        // Через 1 секунду загружаем статистику
+        setTimeout(() => loadStats(false), 1000);
       });
     }
   }, [isLoggedIn, isCheckingSession]);
@@ -510,8 +513,7 @@ function App() {
       setPendingJobs(updatedJobs);
       if (needsRefresh) {
         // Перезагружаем статистику
-        setStatsLoaded(false);
-        setTimeout(() => loadAllSimsForStats(), 2000);
+        setTimeout(() => loadStats(true), 2000);
       }
     }, 3000); // Polling каждые 3 секунды
 
@@ -530,47 +532,30 @@ function App() {
     }, 5000);
   }, []);
 
-  // Загрузка всех SIM для статистики (один раз)
-  const loadAllSimsForStats = useCallback(async () => {
-    if (statsLoaded) return;
+  // Загрузка статистики с сервера (на замену клиентскому расчету)
+  const loadStats = useCallback(async (force = false) => {
     try {
-      // Загружаем все данные для статистики (limit=500)
-      const response = await GetSims('', 0, 500, '', '');
-      if (response.data) {
-        setAllSimsData(response.data);
+      const data = await GetStats(force);
+      if (data) {
+        setServerStats(data);
         setStatsLoaded(true);
       }
     } catch (e) {
-      console.error('Failed to load stats data:', e);
+      console.error('Failed to load stats:', e);
     }
-  }, [statsLoaded]);
+  }, []);
 
-  // Вычисляем статистику из загруженных данных
+  // Use server stats instead of client-side calculation
   const stats = useMemo(() => {
-    if (allSimsData.length === 0) return null;
-    const byStatus: Record<string, number> = {};
-    const byRatePlan: Record<string, number> = {};
-    let activeSessions = 0;
-    
-    for (const sim of allSimsData) {
-      const status = sim.SIM_STATUS_CHANGE || 'Unknown';
-      byStatus[status] = (byStatus[status] || 0) + 1;
-      
-      const ratePlan = sim.RATE_PLAN_FULL_NAME || 'No Plan';
-      byRatePlan[ratePlan] = (byRatePlan[ratePlan] || 0) + 1;
-      
-      if (sim.IN_SESSION === 'Y' || sim.IN_SESSION === 'Yes') {
-        activeSessions++;
-      }
-    }
-    
+    if (!serverStats) return null;
     return {
-      total: allSimsData.length,
-      by_status: byStatus,
-      by_rate_plan: byRatePlan,
-      active_sessions: activeSessions
+      total: serverStats.total || 0,
+      by_status: serverStats.by_status || {},
+      by_rate_plan: serverStats.by_rate_plan || {},
+      active_sessions: serverStats.active_sessions || 0,
+      last_updated: serverStats.last_updated
     };
-  }, [allSimsData]);
+  }, [serverStats]);
 
   const handleLogin = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -1185,7 +1170,7 @@ function App() {
                 loadData(pagination.start, pagination.limit);
                 // Перезагружаем статистику через 2 сек
                 setStatsLoaded(false);
-                setTimeout(() => loadAllSimsForStats(), 2000);
+                setTimeout(() => loadStats(true), 2000);
               }
               else { loadJobs(true); }  // force reload
             }}>
@@ -1208,8 +1193,16 @@ function App() {
 
           {/* Статистика */}
           {stats && (
-            <div className="row g-3 mb-4">
-              <div className="col-md-3">
+            <div className="row row-cols-2 row-cols-md-5 g-3 mb-4">
+              <div className="col">
+                <div className="card bg-dark border-primary h-100">
+                  <div className="card-body">
+                    <h6 className="card-subtitle mb-2 text-muted">Total SIMs</h6>
+                    <h3 className="card-title text-primary">{stats.total || 0}</h3>
+                  </div>
+                </div>
+              </div>
+              <div className="col">
                 <div className="card bg-dark border-secondary h-100">
                   <div className="card-body">
                     <h6 className="card-subtitle mb-2 text-muted">Activated</h6>
@@ -1217,7 +1210,7 @@ function App() {
                   </div>
                 </div>
               </div>
-              <div className="col-md-3">
+              <div className="col">
                 <div className="card bg-dark border-secondary h-100">
                   <div className="card-body">
                     <h6 className="card-subtitle mb-2 text-muted">Suspended</h6>
@@ -1225,7 +1218,7 @@ function App() {
                   </div>
                 </div>
               </div>
-              <div className="col-md-3">
+              <div className="col">
                 <div className="card bg-dark border-secondary h-100">
                   <div className="card-body">
                     <h6 className="card-subtitle mb-2 text-muted">Terminated</h6>
@@ -1233,7 +1226,7 @@ function App() {
                   </div>
                 </div>
               </div>
-              <div className="col-md-3">
+              <div className="col">
                 <div className="card bg-dark border-secondary h-100">
                   <div className="card-body">
                     <h6 className="card-subtitle mb-2 text-muted">In Session</h6>
@@ -1391,16 +1384,43 @@ function App() {
                 </select>
               </div>
               
-              <nav>
-                <ul className="pagination pagination-sm mb-0">
-                  <li className={`page-item ${pagination.start === 0 ? 'disabled' : ''}`}>
-                    <button className="page-link" onClick={() => handlePageChange(pagination.start - pagination.limit)}>Previous</button>
+              <nav className="d-flex align-items-center">
+                <ul className="pagination pagination-sm mb-0 me-2">
+                   <li className={`page-item ${pagination.start === 0 ? 'disabled' : ''}`}>
+                    <button className="page-link" onClick={() => handlePageChange(0)} title="First Page">«</button>
                   </li>
-                  <li className="page-item disabled">
-                    <span className="page-link">Page {currentListPage} of {totalPages || 1}</span>
+                  <li className={`page-item ${pagination.start === 0 ? 'disabled' : ''}`}>
+                    <button className="page-link" onClick={() => handlePageChange(pagination.start - pagination.limit)} title="Previous Page">‹</button>
+                  </li>
+                </ul>
+                
+                <div className="input-group input-group-sm me-2" style={{width: 'auto'}}>
+                  <span className="input-group-text bg-dark border-secondary text-light">Page</span>
+                  <input 
+                    type="number" 
+                    className="form-control bg-dark border-secondary text-light text-center"
+                    style={{width: '60px'}}
+                    value={currentListPage}
+                    min={1}
+                    max={totalPages || 1}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      if (!isNaN(val)) {
+                         // Allow typing, will correct on blur or verify bounds
+                         const page = Math.max(1, Math.min(val, totalPages || 1));
+                         handlePageChange((page - 1) * pagination.limit);
+                      }
+                    }}
+                  />
+                  <span className="input-group-text bg-dark border-secondary text-light">of {totalPages || 1}</span>
+                </div>
+
+                <ul className="pagination pagination-sm mb-0">
+                  <li className={`page-item ${pagination.start + pagination.limit >= total ? 'disabled' : ''}`}>
+                    <button className="page-link" onClick={() => handlePageChange(pagination.start + pagination.limit)} title="Next Page">›</button>
                   </li>
                   <li className={`page-item ${pagination.start + pagination.limit >= total ? 'disabled' : ''}`}>
-                    <button className="page-link" onClick={() => handlePageChange(pagination.start + pagination.limit)}>Next</button>
+                    <button className="page-link" onClick={() => handlePageChange(((totalPages || 1) - 1) * pagination.limit)} title="Last Page">»</button>
                   </li>
                 </ul>
               </nav>
@@ -1674,10 +1694,11 @@ function App() {
         <div>
           <div className="d-flex justify-content-between align-items-center mb-4">
             <h1 className="h3 mb-0 text-white">📊 Statistics Dashboard</h1>
-            <button className="btn btn-outline-light btn-sm" onClick={() => { setStatsLoaded(false); loadAllSimsForStats(); }}>
+            <button className="btn btn-outline-light btn-sm" onClick={() => { setStatsLoaded(false); loadStats(true); }}>
               🔄 Refresh Stats
             </button>
           </div>
+
 
           {/* Summary Cards */}
           <div className="row g-4 mb-4">
@@ -1899,6 +1920,17 @@ function App() {
                     </li>
                     <li className="py-2 border-bottom border-secondary">
                       <strong>Session Timeout:</strong> <span className="text-muted">24 hours</span>
+                    </li>
+                    <li className="py-2 border-bottom border-secondary">
+                      <strong>API Documentation:</strong>
+                      <div className="mt-1 d-flex gap-3">
+                        <a href="/swagger.html" target="_blank" className="text-info text-decoration-none" title="Local API Documentation">
+                          📄 Local Swagger
+                        </a>
+                        <a href="https://eot-portal.pelephone.co.il:8888/ipa/apis/docs" target="_blank" className="text-warning text-decoration-none" title="Pelephone EyesOnT API">
+                          🌐 Pelephone API
+                        </a>
+                      </div>
                     </li>
                     <li className="py-2">
                       <strong>Available Roles:</strong> {roles.map(r => (

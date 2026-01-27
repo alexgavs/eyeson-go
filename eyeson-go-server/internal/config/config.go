@@ -26,6 +26,7 @@ type Config struct {
 	ApiUsername string
 	ApiPassword string
 	JwtSecret   string
+	ApiDelayMs  int
 }
 
 func LoadConfig() (*Config, error) {
@@ -38,6 +39,7 @@ func LoadConfig() (*Config, error) {
 		ApiUsername: getEnv("EYESON_API_USERNAME", ""),
 		ApiPassword: getEnv("EYESON_API_PASSWORD", ""),
 		JwtSecret:   getEnv("JWT_SECRET", "change-me-in-prod"),
+		ApiDelayMs:  getEnvInt("EYESON_API_DELAY_MS", 1000),
 	}
 
 	return cfg, nil

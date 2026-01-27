@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/http/cookiejar"
 	"time"
@@ -41,6 +42,8 @@ func NewClient(baseURL, username, password string) (*Client, error) {
 
 func (c *Client) Login() error {
 	endpoint := c.BaseURL + "/ipa/apis/json/general/login"
+	log.Printf("[EyesOnGUI] Authenticating as %s to %s", c.Username, endpoint)
+
 	reqBody := models.LoginRequest{
 		Username: c.Username,
 		Password: c.Password,
@@ -58,6 +61,7 @@ func (c *Client) Login() error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		log.Printf("[EyesOnGUI] Login failed with HTTP %d", resp.StatusCode)
 		return fmt.Errorf("login failed: status code %d", resp.StatusCode)
 	}
 
@@ -67,9 +71,11 @@ func (c *Client) Login() error {
 	}
 
 	if loginResp.Result != "SUCCESS" {
+		log.Printf("[EyesOnGUI] Login failed: %s - %s", loginResp.Result, loginResp.Message)
 		return fmt.Errorf("login failed: %s - %s", loginResp.Result, loginResp.Message)
 	}
 
+	log.Printf("[EyesOnGUI] Login successful, SessionID acquired")
 	c.SessionID = loginResp.SessionId
 	return nil
 }

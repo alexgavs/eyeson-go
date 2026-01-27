@@ -2,7 +2,7 @@
 
 ## EyesOn Project Knowledge Base
 
-> Last Updated: January 26, 2026
+> Last Updated: January 27, 2026
 
 ---
 
@@ -181,6 +181,32 @@ waf_notes: |
   - Pelephone has Incapsula WAF protection
   - Some requests may be blocked
   - Use limit=25+ (not limit=1) to avoid WAF triggers
+```
+
+### 6. Performance Optimizations (20k+ Records)
+
+```yaml
+skill: performance-optimization
+description: Strategies for High-Volume SIM Management
+
+strategies:
+  parallel_loading:
+    description: Fetching 20,000 SIMs in parallel chunks
+    chunk_size: 2000 records
+    concurrency: 5 workers
+    benefit: Reduced loading time from >4s to ~150ms
+    implementation: internal/handlers/stats.go
+
+  dynamic_delay:
+    description: Configurable API delay to balance speed vs WAF evasion
+    env_var: EYESON_API_DELAY_MS
+    default: 10ms (was hardcoded 1000ms)
+    implementation: internal/config/config.go, internal/eyesont/client.go
+
+  server_side_stats:
+    description: Calculating stats on backend instead of frontend
+    endpoint: /api/v1/stats
+    benefit: Avoids transferring heavy JSON payload to browser
 ```
 
 ---

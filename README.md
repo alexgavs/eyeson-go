@@ -78,6 +78,22 @@ eyeson-go/
 
 Full API documentation available at `http://localhost:5000/docs`
 
+## ⚙️ Configuration
+
+Create a `.env` file in `eyeson-go-server/`:
+
+```dotenv
+# API Base URL (Mock or Production)
+EYESON_API_BASE_URL=http://127.0.0.1:8888
+
+# API Credentials
+EYESON_API_USERNAME=your_username
+EYESON_API_PASSWORD=your_password
+
+# Performance Tuning
+EYESON_API_DELAY_MS=10  # Delay between requests (ms)
+```
+
 ## 🛠️ Development
 
 ### Prerequisites

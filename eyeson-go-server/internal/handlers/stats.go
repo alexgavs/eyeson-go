@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"eyeson-go-server/internal/eyesont"
+	"eyeson-go-server/internal/models"
 	"fmt"
 	"log"
 	"strings"
@@ -14,6 +15,7 @@ import (
 type StatsResponse struct {
 	Total          int            `json:"total"`
 	ByStatus       map[string]int `json:"by_status"`
+	ByRatePlan     map[string]int `json:"by_rate_plan"`
 	ActiveSessions int            `json:"active_sessions"`
 	LastUpdated    time.Time      `json:"last_updated"`
 }
@@ -64,59 +66,81 @@ func GetStats(c *fiber.Ctx) error {
 		})
 	}
 
-	log.Println("[Stats] Fetching fresh stats from API with chunked loading...")
+	log.Println("[Stats] Fetching fresh stats from API with optimized parallel loading...")
 
 	stats := &StatsResponse{
-		Total:    0,
-		ByStatus: make(map[string]int),
+		Total:      0,
+		ByStatus:   make(map[string]int),
+		ByRatePlan: make(map[string]int),
 	}
+	var statsMu sync.Mutex
 
-	// Загружаем данные чанками по 50 записей (WAF блокирует большие запросы)
-	const chunkSize = 50
-	start := 0
-	totalFetched := 0
-	apiTotal := 0
-
-	for {
-		log.Printf("[Stats] Loading chunk: start=%d, limit=%d", start, chunkSize)
-
-		resp, err := eyesont.Instance.GetSims(start, chunkSize, nil, "", "")
-		if err != nil {
-			log.Printf("[Stats] API error at start=%d: %v", start, err)
-			// Если хоть какие-то данные загружены - возвращаем их
-			if totalFetched > 0 {
-				break
-			}
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-		}
-
-		// Запоминаем общее количество из API
-		if apiTotal == 0 {
-			apiTotal = resp.Count
-		}
-
-		// Обрабатываем данные
-		for _, sim := range resp.Data {
+	// Helper to safely update stats
+	processChunk := func(sims []models.SimData) {
+		statsMu.Lock()
+		defer statsMu.Unlock()
+		for _, sim := range sims {
+			// Status Update
 			status := sim.SimStatusChange
 			if status == "Active" {
 				status = "Activated"
 			}
 			stats.ByStatus[status]++
 
+			// Rate Plan Update
+			rp := sim.RatePlanFullName
+			if rp == "" {
+				rp = "Unknown"
+			}
+			stats.ByRatePlan[rp]++
+
 			if sim.InSession == "Y" || sim.InSession == "Yes" {
 				stats.ActiveSessions++
 			}
 		}
+	}
 
-		totalFetched += len(resp.Data)
-		log.Printf("[Stats] Chunk loaded: got %d records, total fetched: %d/%d", len(resp.Data), totalFetched, apiTotal)
+	// 1. Initial request with increased chunk size
+	const chunkSize = 2000
+	log.Printf("[Stats] Fetching initial chunk (limit=%d)...", chunkSize)
 
-		// Если получили меньше чем запрашивали - значит это последний чанк
-		if len(resp.Data) < chunkSize || totalFetched >= apiTotal {
-			break
+	resp, err := eyesont.Instance.GetSims(0, chunkSize, nil, "", "")
+	if err != nil {
+		log.Printf("[Stats] API error: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	apiTotal := resp.Count
+	stats.Total = apiTotal
+	processChunk(resp.Data)
+
+	totalFetched := len(resp.Data)
+	log.Printf("[Stats] Initial chunk loaded: %d/%d records", totalFetched, apiTotal)
+
+	// 2. Parallel fetch for the rest if needed
+	if apiTotal > totalFetched {
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, 5) // max 5 concurrent requests
+
+		// We know the total now, so we can launch parallel requests
+		for start := totalFetched; start < apiTotal; start += chunkSize {
+			wg.Add(1)
+			go func(startIdx int) {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+
+				// log.Printf("[Stats] Loading chunk start=%d...", startIdx)
+				chunkResp, err := eyesont.Instance.GetSims(startIdx, chunkSize, nil, "", "")
+				if err != nil {
+					log.Printf("[Stats] Error fetching chunk at %d: %v", startIdx, err)
+					return
+				}
+				processChunk(chunkResp.Data)
+			}(start)
 		}
-
-		start += chunkSize
+		wg.Wait()
+		log.Printf("[Stats] Parallel fetching completed. Processed ~%d records", stats.Total)
 	}
 
 	stats.Total = apiTotal

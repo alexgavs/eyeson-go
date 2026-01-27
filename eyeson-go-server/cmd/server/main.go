@@ -2,8 +2,6 @@ package main
 
 import (
 	"log"
-	"os"
-	"path/filepath"
 
 	"eyeson-go-server/internal/config"
 	"eyeson-go-server/internal/database"
@@ -14,18 +12,6 @@ import (
 )
 
 func main() {
-	// Get executable directory
-	exePath, err := os.Executable()
-	if err != nil {
-		log.Fatalf("Could not get executable path: %v", err)
-	}
-	exeDir := filepath.Dir(exePath)
-
-	// Change working directory to executable location
-	if err := os.Chdir(exeDir); err != nil {
-		log.Fatalf("Could not change directory: %v", err)
-	}
-
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		log.Fatalf("Could not load config: %v", err)
@@ -33,11 +19,9 @@ func main() {
 
 	database.Connect(cfg)
 
-	eyesont.InitWithConfig(cfg.ApiBaseUrl, cfg.ApiUsername, cfg.ApiPassword)
+	eyesont.InitWithConfig(cfg.ApiBaseUrl, cfg.ApiUsername, cfg.ApiPassword, cfg.ApiDelayMs)
 
 	app := fiber.New()
-
-	app.Static("/", "./static")
 
 	routes.SetupRoutes(app)
 

@@ -1,3 +1,4 @@
+//go:build ignore
 // +build ignore
 
 package main
@@ -79,7 +80,7 @@ func testJobPolling() TestResult {
 	// 1. Получаем текущие статусы
 	fmt.Println("\n=== ВАРИАНТ A: Job ID Polling ===")
 	fmt.Println("1. Получаем текущие статусы...")
-	
+
 	currentStatuses := make(map[string]string)
 	for _, msisdn := range testMSISDNs {
 		status := getSingleSimStatus(msisdn)
@@ -111,12 +112,12 @@ func testJobPolling() TestResult {
 	maxAttempts := 10
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		time.Sleep(3 * time.Second)
-		
+
 		jobStatus, actions := getJobStatus(requestId)
 		result.RequestCount++
-		
+
 		fmt.Printf("   Attempt %d: Job status = %s\n", attempt, jobStatus)
-		
+
 		if jobStatus == "COMPLETED" || jobStatus == "SUCCESS" || jobStatus == "PARTIAL_SUCCESS" {
 			fmt.Println("   ✓ Job завершён!")
 			for msisdn, status := range actions {
@@ -125,7 +126,7 @@ func testJobPolling() TestResult {
 			result.AllConfirmed = true
 			break
 		}
-		
+
 		if jobStatus == "FAILED" {
 			fmt.Println("   ✗ Job failed!")
 			break
@@ -151,7 +152,7 @@ func testBulkSimsPolling() TestResult {
 	// 1. Получаем все статусы одним запросом
 	allStatuses := getBulkSimStatuses(testMSISDNs)
 	result.RequestCount++
-	
+
 	for msisdn, status := range allStatuses {
 		fmt.Printf("   %s: %s\n", msisdn, status)
 	}
@@ -178,11 +179,11 @@ func testBulkSimsPolling() TestResult {
 
 	for attempt := 1; attempt <= maxAttempts && len(pendingMSISDNs) > 0; attempt++ {
 		time.Sleep(3 * time.Second)
-		
+
 		// Один запрос для всех pending
 		currentStatuses := getBulkSimStatuses(testMSISDNs)
 		result.RequestCount++
-		
+
 		confirmed := 0
 		for msisdn := range pendingMSISDNs {
 			if currentStatuses[msisdn] == targetStatus {
@@ -191,9 +192,9 @@ func testBulkSimsPolling() TestResult {
 				confirmed++
 			}
 		}
-		
+
 		fmt.Printf("   Attempt %d: подтверждено %d, осталось %d\n", attempt, confirmed, len(pendingMSISDNs))
-		
+
 		if len(pendingMSISDNs) == 0 {
 			result.AllConfirmed = true
 			fmt.Println("   ✓ Все статусы подтверждены!")
@@ -208,7 +209,7 @@ func testBulkSimsPolling() TestResult {
 
 func getSingleSimStatus(msisdn string) string {
 	url := fmt.Sprintf("%s/ipa/apis/json/provisioning/getProvisioningData", BaseURL)
-	
+
 	reqBody := map[string]interface{}{
 		"username": Username,
 		"password": Password,
@@ -218,19 +219,19 @@ func getSingleSimStatus(msisdn string) string {
 			{"fieldName": "MSISDN", "fieldValue": msisdn},
 		},
 	}
-	
+
 	resp, err := doRequest("POST", url, reqBody)
 	if err != nil {
 		return "ERROR"
 	}
-	
+
 	var result struct {
 		Data []struct {
 			SimStatusChange string `json:"SIM_STATUS_CHANGE"`
 		} `json:"data"`
 	}
 	json.Unmarshal(resp, &result)
-	
+
 	if len(result.Data) > 0 {
 		return result.Data[0].SimStatusChange
 	}
@@ -239,7 +240,7 @@ func getSingleSimStatus(msisdn string) string {
 
 func getBulkSimStatuses(msisdns []string) map[string]string {
 	url := fmt.Sprintf("%s/ipa/apis/json/provisioning/getProvisioningData", BaseURL)
-	
+
 	// Загружаем все SIM (limit 5000) и фильтруем локально
 	reqBody := map[string]interface{}{
 		"username": Username,
@@ -247,12 +248,12 @@ func getBulkSimStatuses(msisdns []string) map[string]string {
 		"start":    0,
 		"limit":    5000,
 	}
-	
+
 	resp, err := doRequest("POST", url, reqBody)
 	if err != nil {
 		return nil
 	}
-	
+
 	var result struct {
 		Data []struct {
 			MSISDN          string `json:"MSISDN"`
@@ -260,25 +261,25 @@ func getBulkSimStatuses(msisdns []string) map[string]string {
 		} `json:"data"`
 	}
 	json.Unmarshal(resp, &result)
-	
+
 	statuses := make(map[string]string)
 	msisdnSet := make(map[string]bool)
 	for _, m := range msisdns {
 		msisdnSet[m] = true
 	}
-	
+
 	for _, sim := range result.Data {
 		if msisdnSet[sim.MSISDN] {
 			statuses[sim.MSISDN] = sim.SimStatusChange
 		}
 	}
-	
+
 	return statuses
 }
 
 func sendBulkUpdate(msisdns []string, targetStatus string) int {
 	url := fmt.Sprintf("%s/ipa/apis/json/provisioning/updateProvisioningData", BaseURL)
-	
+
 	subscribers := make([]map[string]string, len(msisdns))
 	for i, m := range msisdns {
 		// Normalize: 972xxx -> 0xxx
@@ -288,7 +289,7 @@ func sendBulkUpdate(msisdns []string, targetStatus string) int {
 		}
 		subscribers[i] = map[string]string{"neId": neId}
 	}
-	
+
 	reqBody := map[string]interface{}{
 		"username": Username,
 		"password": Password,
@@ -300,35 +301,35 @@ func sendBulkUpdate(msisdns []string, targetStatus string) int {
 			},
 		},
 	}
-	
+
 	resp, err := doRequest("POST", url, reqBody)
 	if err != nil {
 		return 0
 	}
-	
+
 	var result struct {
 		Result    string `json:"result"`
 		RequestId int    `json:"requestId"`
 	}
 	json.Unmarshal(resp, &result)
-	
+
 	return result.RequestId
 }
 
 func getJobStatus(jobId int) (string, map[string]string) {
 	url := fmt.Sprintf("%s/ipa/apis/json/provisioning/getProvisioningJobList", BaseURL)
-	
+
 	reqBody := map[string]interface{}{
 		"username": Username,
 		"password": Password,
 		"jobId":    jobId,
 	}
-	
+
 	resp, err := doRequest("POST", url, reqBody)
 	if err != nil {
 		return "ERROR", nil
 	}
-	
+
 	var result struct {
 		Jobs []struct {
 			JobStatus string `json:"jobStatus"`
@@ -339,17 +340,17 @@ func getJobStatus(jobId int) (string, map[string]string) {
 		} `json:"jobs"`
 	}
 	json.Unmarshal(resp, &result)
-	
+
 	if len(result.Jobs) == 0 {
 		return "NOT_FOUND", nil
 	}
-	
+
 	job := result.Jobs[0]
 	actions := make(map[string]string)
 	for _, a := range job.Actions {
 		actions[a.TargetValue] = a.Status
 	}
-	
+
 	return job.JobStatus, actions
 }
 
@@ -362,12 +363,12 @@ func main() {
 
 	// Тест A: Job ID polling
 	resultA := testJobPolling()
-	
+
 	// Пауза между тестами
 	fmt.Println("\n--- Пауза 10 сек между тестами ---")
 	time.Sleep(10 * time.Second)
-	
-	// Тест B: Bulk GetSims polling  
+
+	// Тест B: Bulk GetSims polling
 	resultB := testBulkSimsPolling()
 
 	// Сравнение результатов
@@ -384,7 +385,7 @@ func main() {
 	fmt.Printf("║   - Время: %v                                        ║\n", resultB.TotalTime.Round(time.Second))
 	fmt.Printf("║   - Подтверждено: %v                                         ║\n", resultB.AllConfirmed)
 	fmt.Println("╠══════════════════════════════════════════════════════════════╣")
-	
+
 	// Вывод победителя
 	if resultA.RequestCount < resultB.RequestCount {
 		fmt.Println("║ 🏆 ПОБЕДИТЕЛЬ: Вариант A (меньше запросов)                   ║")
@@ -393,12 +394,12 @@ func main() {
 	} else {
 		fmt.Println("║ 🤝 НИЧЬЯ по количеству запросов                              ║")
 	}
-	
+
 	if resultA.TotalTime < resultB.TotalTime {
 		fmt.Println("║ ⏱️  Быстрее: Вариант A                                        ║")
 	} else {
 		fmt.Println("║ ⏱️  Быстрее: Вариант B                                        ║")
 	}
-	
+
 	fmt.Println("╚══════════════════════════════════════════════════════════════╝")
 }

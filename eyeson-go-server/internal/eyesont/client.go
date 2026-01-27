@@ -28,6 +28,7 @@ type Client struct {
 	BaseURL    string
 	Username   string
 	Password   string
+	ApiDelayMs int
 	httpClient *http.Client
 	sessionMu  sync.RWMutex
 	loggedIn   bool
@@ -56,17 +57,31 @@ func Init(cfg interface {
 
 	// Проверим, поддерживает ли конфиг интерфейс
 	if c, ok := cfg.(configLike); ok {
-		Instance = NewClient(c.GetApiBaseUrl(), c.GetApiUsername(), c.GetApiPassword())
+		Instance = NewClient(c.GetApiBaseUrl(), c.GetApiUsername(), c.GetApiPassword(), 1000)
+
+		// Выполняем login при старте
+		log.Println("[EyesOnT API] Performing initial startup login...")
+		if err := Instance.Login(); err != nil {
+			log.Printf("[EyesOnT API] WARNING: Initial login failed: %v", err)
+		} else {
+			log.Println("[EyesOnT API] Initial login successful")
+		}
 	}
 }
 
 // InitWithConfig инициализирует клиент с прямыми значениями
-func InitWithConfig(baseURL, username, password string) {
-	Instance = NewClient(baseURL, username, password)
-	// Не делаем login при старте - API может работать без него для getProvisioningData
-	// Login будет выполнен только когда потребуется для Jobs API
+func InitWithConfig(baseURL, username, password string, apiDelayMs int) {
+	Instance = NewClient(baseURL, username, password, apiDelayMs)
 	maskedPassword := maskPassword(password)
-	log.Printf("[EyesOnT API] Initialized: URL=%s, User=%s, Password=%s", baseURL, username, maskedPassword)
+	log.Printf("[EyesOnT API] Initialized: URL=%s, User=%s, Password=%s, Delay=%dms", baseURL, username, maskedPassword, apiDelayMs)
+
+	// Выполняем login при старте
+	log.Println("[EyesOnT API] Performing initial startup login...")
+	if err := Instance.Login(); err != nil {
+		log.Printf("[EyesOnT API] WARNING: Initial login failed: %v", err)
+	} else {
+		log.Println("[EyesOnT API] Initial login successful")
+	}
 }
 
 // maskPassword скрывает пароль за звёздочками
@@ -102,7 +117,7 @@ func maskPasswordInBody(body interface{}) interface{} {
 }
 
 // NewClient создает новый клиент с cookie-jar для сессий
-func NewClient(baseURL, username, password string) *Client {
+func NewClient(baseURL, username, password string, apiDelayMs int) *Client {
 	jar, _ := cookiejar.New(nil)
 
 	client := &http.Client{
@@ -117,6 +132,7 @@ func NewClient(baseURL, username, password string) *Client {
 		BaseURL:    baseURL,
 		Username:   username,
 		Password:   password,
+		ApiDelayMs: apiDelayMs,
 		httpClient: client,
 		loggedIn:   false,
 	}
@@ -135,10 +151,16 @@ func (c *Client) Login() error {
 		Password: c.Password,
 	}
 
+	// Логируем попытку входа с маскированным паролем
+	maskedReq := maskPasswordInBody(loginReq)
+	if reqBytes, err := json.Marshal(maskedReq); err == nil {
+		log.Printf("[EyesOnT API] AUTHORIZING USER: %s", string(reqBytes))
+	}
+
 	body, _ := json.Marshal(loginReq)
 	url := fmt.Sprintf("%s/ipa/apis/json/general/login", c.BaseURL)
 
-	log.Printf("[EyesOnT API] LOGIN to %s", url)
+	log.Printf("[EyesOnT API] Sending LOGIN request to %s", url)
 
 	resp, err := c.httpClient.Post(url, "application/json", bytes.NewBuffer(body))
 	if err != nil {
@@ -154,12 +176,17 @@ func (c *Client) Login() error {
 	}
 
 	var result struct {
-		Result string `json:"result"`
+		Result    string `json:"result"`
+		SessionId string `json:"sessionId"`
+		JwtToken  string `json:"jwtToken"`
 	}
 	if err := json.Unmarshal(respBody, &result); err == nil && result.Result == "SUCCESS" {
 		c.loggedIn = true
 		c.loginTime = time.Now()
-		log.Printf("[EyesOnT API] LOGIN SUCCESS - session cookies stored")
+		log.Printf("[EyesOnT API] LOGIN SUCCESS - SessionId: %s", result.SessionId)
+		if len(result.JwtToken) > 20 {
+			log.Printf("[EyesOnT API] JWT Token received (len=%d): %s...", len(result.JwtToken), result.JwtToken[:20])
+		}
 		return nil
 	}
 
@@ -183,14 +210,17 @@ func (c *Client) EnsureSession() error {
 
 // doRequest выполняет HTTP запрос с rate limiting для защиты от WAF
 func (c *Client) doRequest(method, url string, body interface{}) (*http.Response, error) {
-	// Rate limiting - минимум 1 секунда между запросами для WAF
-	apiRateMutex.Lock()
-	elapsed := time.Since(lastApiCall)
-	if elapsed < 1*time.Second {
-		time.Sleep(1*time.Second - elapsed)
+	// Rate limiting для защиты от WAF
+	if c.ApiDelayMs > 0 {
+		apiRateMutex.Lock()
+		elapsed := time.Since(lastApiCall)
+		delay := time.Duration(c.ApiDelayMs) * time.Millisecond
+		if elapsed < delay {
+			time.Sleep(delay - elapsed)
+		}
+		lastApiCall = time.Now()
+		apiRateMutex.Unlock()
 	}
-	lastApiCall = time.Now()
-	apiRateMutex.Unlock()
 
 	var bodyReader io.Reader
 	if body != nil {
@@ -203,7 +233,7 @@ func (c *Client) doRequest(method, url string, body interface{}) (*http.Response
 		// Логируем запрос (скрываем пароль)
 		logBody := maskPasswordInBody(body)
 		jsonIndented, _ := json.MarshalIndent(logBody, "", "  ")
-		log.Printf("[EyesOnT API] REQUEST to %s:\n%s", url, string(jsonIndented))
+		log.Printf("[EyesOnT API] Authenticated REQUEST to %s (with username/password in body)\nPayload: %s", url, string(jsonIndented))
 	}
 
 	req, err := http.NewRequest(method, url, bodyReader)
