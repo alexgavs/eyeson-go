@@ -33,7 +33,7 @@ func GetSimHistory(c *fiber.Ctx) error {
 	for _, task := range tasks {
 		action := "Queued Task"
 		val := ""
-		
+
 		// Parse payload to get details
 		if task.Type == "CHANGE_STATUS" {
 			var p struct {
@@ -46,14 +46,14 @@ func GetSimHistory(c *fiber.Ctx) error {
 
 		// Create a mock history item
 		pendingItem := models.SimHistory{
-			MSISDN:   msisdn,
-			Action:   action,
-			NewValue: val,
-			Field:    "status",
-			Source:   fmt.Sprintf("System Queue (Att: %d)", task.Attempt),
+			MSISDN:    msisdn,
+			Action:    action,
+			NewValue:  val,
+			Field:     "status",
+			Source:    fmt.Sprintf("System Queue (Att: %d)", task.Attempt),
 			CreatedAt: task.CreatedAt,
 		}
-		
+
 		// Prepend to history
 		history = append([]models.SimHistory{pendingItem}, history...)
 	}

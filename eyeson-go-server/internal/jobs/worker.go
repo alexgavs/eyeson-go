@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"eyeson-go-server/internal/eyesont"
 	"eyeson-go-server/internal/models"
+	"eyeson-go-server/internal/services"
 	"fmt"
 	"log"
 	"strings"
@@ -78,6 +79,8 @@ func (w *Worker) ProcessPendingTasks() {
 func (w *Worker) processTask(task models.SyncTask) {
 	log.Printf("[JobWorker] Processing task ID=%d Type=%s Target=%s", task.ID, task.Type, task.TargetMSISDN)
 
+	startTime := time.Now()
+
 	// Update status to PROCESSING
 	w.DB.Model(&task).Updates(map[string]interface{}{
 		"status":     "PROCESSING",
@@ -96,6 +99,7 @@ func (w *Worker) processTask(task models.SyncTask) {
 		err = fmt.Errorf("unknown task type: %s", task.Type)
 	}
 
+	durationMs := time.Since(startTime).Milliseconds()
 	status := "COMPLETED"
 	if err != nil {
 		errMsg := err.Error()
@@ -108,13 +112,8 @@ func (w *Worker) processTask(task models.SyncTask) {
 
 		// Logic based on error type
 		if isNetworkError {
-			// SERVER NOT WORKING -> Keep retrying with long backoff or pause?
-			// Strategy: Exponential backoff, up to MaxAttempts (or maybe infinite?)
-			// User request: "If server not working" -> implying specific handling.
-			// We will just treat it as a retryable error with backoff.
 			log.Printf("[JobWorker] Network Error detected. Server might be DOWN.")
 		} else if isRefused {
-			// SERVER REFUSED -> Maybe retry fewer times?
 			log.Printf("[JobWorker] Server REFUSED the request.")
 		}
 
@@ -125,18 +124,26 @@ func (w *Worker) processTask(task models.SyncTask) {
 				backoffMinutes = (task.Attempt + 1) * 2 // Slower backoff for network issues
 			}
 
+			nextRetry := time.Now().Add(time.Minute * time.Duration(backoffMinutes))
 			w.DB.Model(&task).Updates(map[string]interface{}{
 				"status":      "PENDING", // Back to pending
 				"attempt":     task.Attempt + 1,
-				"next_run_at": time.Now().Add(time.Minute * time.Duration(backoffMinutes)),
+				"next_run_at": nextRetry,
 				"result":      "RETRYING: " + result,
 			})
+
+			// Log retry to audit
+			services.Audit.LogQueueRetry(task.ID, task.TargetMSISDN, task.Attempt+1, task.MaxAttempts, errMsg)
 			return
 		} else {
 			status = "FAILED"
+			// Log failure to audit
+			services.Audit.LogQueueFailed(task.ID, task.TargetMSISDN, errMsg, durationMs)
 		}
 	} else {
 		log.Printf("[JobWorker] Task ID=%d COMPLETED", task.ID)
+		// Log completion to audit
+		services.Audit.LogQueueCompleted(task.ID, task.TargetMSISDN, result, durationMs)
 	}
 
 	w.DB.Model(&task).Updates(map[string]interface{}{

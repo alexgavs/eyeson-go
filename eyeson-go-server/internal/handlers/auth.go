@@ -6,14 +6,17 @@
 package handlers
 
 import (
+	"fmt"
 	"time"
 
 	"eyeson-go-server/internal/config"
 	"eyeson-go-server/internal/database"
 	"eyeson-go-server/internal/models"
+	"eyeson-go-server/internal/services"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -29,20 +32,34 @@ func Login(c *fiber.Ctx) error {
 	}
 
 	var user models.User
-	result := database.DB.Where("username = ?", req.Username).First(&user)
+	result := database.DB.Preload("Role").Where("username = ?", req.Username).First(&user)
 	if result.Error != nil {
+		// Log failed login attempt (user not found)
+		services.Audit.LogLogin(c, 0, req.Username, "", false, "User not found")
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid credentials"})
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+		// Log failed login attempt (wrong password)
+		services.Audit.LogLogin(c, user.ID, user.Username, user.Role.Name, false, "Invalid password")
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid credentials"})
 	}
 
+	// Check if user is active
+	if !user.IsActive {
+		services.Audit.LogLogin(c, user.ID, user.Username, user.Role.Name, false, "Account disabled")
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Account is disabled"})
+	}
+
 	cfg, _ := config.LoadConfig()
+	sessionID := uuid.New().String()
+
 	claims := jwt.MapClaims{
-		"user_id":  user.ID,
-		"username": user.Username,
-		"exp":      time.Now().Add(time.Hour * 24).Unix(),
+		"user_id":    user.ID,
+		"username":   user.Username,
+		"role":       user.Role.Name,
+		"session_id": sessionID,
+		"exp":        time.Now().Add(time.Hour * 24).Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	t, err := token.SignedString([]byte(cfg.JwtSecret))
@@ -50,7 +67,18 @@ func Login(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Could not login"})
 	}
 
-	return c.JSON(fiber.Map{"token": t})
+	// Update last seen
+	database.DB.Model(&user).Update("last_seen", time.Now())
+
+	// Log successful login
+	services.Audit.LogLogin(c, user.ID, user.Username, user.Role.Name, true, "")
+
+	return c.JSON(fiber.Map{
+		"token":    t,
+		"user_id":  user.ID,
+		"username": user.Username,
+		"role":     user.Role.Name,
+	})
 }
 
 type ChangePasswordRequest struct {
@@ -173,6 +201,9 @@ func CreateUser(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Could not create user"})
 	}
 
+	// Log user creation
+	services.Audit.LogUserCreate(c, user.ID, user.Username)
+
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"message": "User created successfully",
 		"user_id": user.ID,
@@ -195,27 +226,39 @@ func UpdateUser(c *fiber.Ctx) error {
 	}
 
 	var user models.User
-	if err := database.DB.First(&user, userID).Error; err != nil {
+	if err := database.DB.Preload("Role").First(&user, userID).Error; err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "User not found"})
 	}
 
-	if req.Username != "" {
+	// Track changes for audit
+	oldUsername := user.Username
+	oldEmail := user.Email
+	oldRole := user.Role.Name
+	oldIsActive := user.IsActive
+
+	if req.Username != "" && req.Username != user.Username {
 		user.Username = req.Username
+		services.Audit.LogUserUpdate(c, user.ID, "username", oldUsername, req.Username)
 	}
 
-	if req.Email != "" {
+	if req.Email != "" && req.Email != user.Email {
 		user.Email = req.Email
+		services.Audit.LogUserUpdate(c, user.ID, "email", oldEmail, req.Email)
 	}
 
 	if req.Role != "" {
 		var role models.Role
 		if err := database.DB.Where("name = ?", req.Role).First(&role).Error; err == nil {
-			user.RoleID = role.ID
+			if role.Name != oldRole {
+				user.RoleID = role.ID
+				services.Audit.LogUserUpdate(c, user.ID, "role", oldRole, role.Name)
+			}
 		}
 	}
 
-	if req.IsActive != nil {
+	if req.IsActive != nil && *req.IsActive != oldIsActive {
 		user.IsActive = *req.IsActive
+		services.Audit.LogUserUpdate(c, user.ID, "is_active", fmt.Sprintf("%v", oldIsActive), fmt.Sprintf("%v", *req.IsActive))
 	}
 
 	if err := database.DB.Save(&user).Error; err != nil {
@@ -233,9 +276,14 @@ func DeleteUser(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "User not found"})
 	}
 
+	username := user.Username
+
 	if err := database.DB.Delete(&user).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Could not delete user"})
 	}
+
+	// Log user deletion
+	services.Audit.LogUserDelete(c, user.ID, username)
 
 	return c.JSON(fiber.Map{"message": "User deleted successfully"})
 }

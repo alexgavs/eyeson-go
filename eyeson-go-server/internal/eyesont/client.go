@@ -374,6 +374,45 @@ func (c *Client) BulkUpdate(msisdns []string, actionType, targetValue string) (*
 	return &result, nil
 }
 
+// UpdateSIMLabel обновляет метку SIM-карты (CUSTOMER_LABEL_UPDATE)
+// field: "label_1", "label_2", "label_3"
+func (c *Client) UpdateSIMLabel(cli, field, value string) (*models.BulkUpdateResponse, error) {
+	// Маппинг полей на API actionType
+	actionTypeMap := map[string]string{
+		"label_1": "CUSTOMER_LABEL_UPDATE",
+		"label_2": "CUSTOMER_LABEL_UPDATE",
+		"label_3": "CUSTOMER_LABEL_UPDATE",
+	}
+
+	actionType, ok := actionTypeMap[field]
+	if !ok {
+		actionType = "CUSTOMER_LABEL_UPDATE"
+	}
+
+	return c.BulkUpdate([]string{cli}, actionType, value)
+}
+
+// UpdateSIMStatus обновляет статус одной SIM-карты
+func (c *Client) UpdateSIMStatus(cli, newStatus string) (*models.BulkUpdateResponse, error) {
+	return c.BulkUpdate([]string{cli}, "SIM_STATE_CHANGE", newStatus)
+}
+
+// BulkUpdateStatus обновляет статус нескольких SIM-карт
+// items: массив с полями cli/msisdn
+func (c *Client) BulkUpdateStatus(items []map[string]string, newStatus string) (*models.BulkUpdateResponse, error) {
+	// Извлекаем CLI/MSISDN из items
+	msisdns := make([]string, 0, len(items))
+	for _, item := range items {
+		if cli, ok := item["cli"]; ok && cli != "" {
+			msisdns = append(msisdns, cli)
+		} else if msisdn, ok := item["msisdn"]; ok && msisdn != "" {
+			msisdns = append(msisdns, msisdn)
+		}
+	}
+
+	return c.BulkUpdate(msisdns, "SIM_STATE_CHANGE", newStatus)
+}
+
 // GetJobs получает список задач провизионирования
 func (c *Client) GetJobs(start, limit, jobId int, jobStatus string) (*models.GetJobsResponse, error) {
 	url := fmt.Sprintf("%s/ipa/apis/json/provisioning/getProvisioningJobList", c.BaseURL)

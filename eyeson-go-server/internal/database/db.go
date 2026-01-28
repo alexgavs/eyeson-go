@@ -27,12 +27,117 @@ func Connect(cfg *config.Config) {
 
 	log.Println("Database connection established")
 
-	err = DB.AutoMigrate(&models.User{}, &models.Role{}, &models.ActivityLog{}, &models.SimCard{}, &models.SyncTask{}, &models.SimHistory{})
+	// Migrate all models including new AuditLog and SyncTaskExtended
+	err = DB.AutoMigrate(
+		&models.User{},
+		&models.Role{},
+		&models.ActivityLog{},
+		&models.SimCard{},
+		&models.SyncTask{},
+		&models.SimHistory{},
+		&models.AuditLog{},
+		&models.SyncTaskExtended{},
+	)
 	if err != nil {
 		log.Fatalf("Migration failed: %v", err)
 	}
 
+	// Create indexes for audit_logs table
+	createAuditIndexes()
+
+	// Migrate old activity logs to new audit format (one-time migration)
+	migrateActivityLogs()
+
 	seedDatabase()
+}
+
+// createAuditIndexes creates indexes for efficient audit log queries
+func createAuditIndexes() {
+	// Index for entity queries (entity_type + entity_id)
+	DB.Exec(`CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_logs(entity_type, entity_id)`)
+
+	// Index for user activity queries (user_id + created_at DESC)
+	DB.Exec(`CREATE INDEX IF NOT EXISTS idx_audit_user_time ON audit_logs(user_id, created_at DESC)`)
+
+	// Index for action filtering (action + created_at DESC)
+	DB.Exec(`CREATE INDEX IF NOT EXISTS idx_audit_action_time ON audit_logs(action, created_at DESC)`)
+
+	// Index for status filtering (status + created_at DESC)
+	DB.Exec(`CREATE INDEX IF NOT EXISTS idx_audit_status_time ON audit_logs(status, created_at DESC)`)
+
+	// Index for batch operations
+	DB.Exec(`CREATE INDEX IF NOT EXISTS idx_audit_batch ON audit_logs(batch_id)`)
+
+	// Index for session tracking
+	DB.Exec(`CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_logs(session_id)`)
+
+	// Indexes for sync_task_extended table
+	DB.Exec(`CREATE INDEX IF NOT EXISTS idx_queue_status_priority ON sync_task_extended(status, priority DESC)`)
+	DB.Exec(`CREATE INDEX IF NOT EXISTS idx_queue_user ON sync_task_extended(user_id, created_at DESC)`)
+	DB.Exec(`CREATE INDEX IF NOT EXISTS idx_queue_batch ON sync_task_extended(batch_id)`)
+	DB.Exec(`CREATE INDEX IF NOT EXISTS idx_queue_request ON sync_task_extended(request_id)`)
+
+	log.Println("Audit and queue indexes created/verified")
+}
+
+// migrateActivityLogs migrates old ActivityLog entries to new AuditLog format
+func migrateActivityLogs() {
+	var count int64
+	DB.Model(&models.AuditLog{}).Count(&count)
+	if count > 0 {
+		// Already migrated
+		return
+	}
+
+	var activityLogs []models.ActivityLog
+	if err := DB.Find(&activityLogs).Error; err != nil {
+		log.Printf("Warning: Could not read activity logs for migration: %v", err)
+		return
+	}
+
+	if len(activityLogs) == 0 {
+		return
+	}
+
+	log.Printf("Migrating %d activity logs to new audit format...", len(activityLogs))
+
+	for _, al := range activityLogs {
+		auditLog := models.AuditLog{
+			Username:   al.Username,
+			IPAddress:  al.IPAddress,
+			UserAgent:  al.UserAgent,
+			EntityType: models.EntitySIM,
+			EntityID:   al.TargetMSISDN,
+			Action:     mapActivityAction(al.ActionType),
+			OldValue:   al.OldValue,
+			NewValue:   al.NewValue,
+			Source:     models.SourceWeb,
+			Status:     models.AuditStatusSuccess,
+		}
+		auditLog.CreatedAt = al.CreatedAt
+
+		DB.Create(&auditLog)
+	}
+
+	log.Printf("Migration complete: %d activity logs migrated", len(activityLogs))
+}
+
+// mapActivityAction maps old action names to new AuditAction constants
+func mapActivityAction(oldAction string) models.AuditAction {
+	switch oldAction {
+	case "status_change":
+		return models.ActionStatusChange
+	case "create":
+		return models.ActionCreate
+	case "update":
+		return models.ActionUpdate
+	case "delete":
+		return models.ActionDelete
+	case "sync":
+		return models.ActionSync
+	default:
+		return models.AuditAction(oldAction)
+	}
 }
 
 func seedDatabase() {
