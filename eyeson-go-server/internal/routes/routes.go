@@ -52,6 +52,7 @@ func SetupRoutes(app *fiber.App) {
 	sims := api.Group("/sims")
 	sims.Use(handlers.JWTMiddleware)
 	sims.Get("/", handlers.GetSims) // All authenticated users
+	sims.Get("/:msisdn/history", handlers.GetSimHistory)
 
 	simsWrite := sims.Group("")
 	simsWrite.Use(handlers.RequireAnyRole("Administrator", "Moderator"))
@@ -69,10 +70,16 @@ func SetupRoutes(app *fiber.App) {
 	apiStatus.Use(handlers.RequireRole("Administrator"))
 	apiStatus.Get("/", handlers.GetAPIStatus)
 
+	// API Connection Toggle (Admin only)
+	api.Post("/api-connection", handlers.JWTMiddleware, handlers.RequireRole("Administrator"), handlers.ToggleConnection)
+
 	// Jobs routes (protected - All roles)
 	jobs := api.Group("/jobs")
 	jobs.Use(handlers.JWTMiddleware)
 	jobs.Get("/", handlers.GetJobs)
+	jobs.Get("/queue", handlers.GetSyncTasks)
+	jobs.Post("/queue/:id/execute", handlers.ExecuteQueueTask) // Instant execution
+	jobs.Get("/local/:id", handlers.GetLocalJob)
 
 	// Статические файлы
 	app.Static("/assets", "./static/assets")

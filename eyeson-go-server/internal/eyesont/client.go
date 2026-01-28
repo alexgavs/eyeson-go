@@ -360,7 +360,7 @@ func (c *Client) BulkUpdate(msisdns []string, actionType, targetValue string) (*
 		return nil, fmt.Errorf("unmarshal error: %w", err)
 	}
 
-	if result.Result == "SUCCESS" {
+	if result.Result == "SUCCESS" || result.Result == "succeeded" {
 		log.Printf("[EyesOnT API] BulkUpdate SUCCESS: requestId=%d", result.RequestId)
 	} else {
 		log.Printf("[EyesOnT API] BulkUpdate FAILED: %s - %s", result.Result, result.Message)
@@ -418,6 +418,41 @@ func (c *Client) GetJobs(start, limit, jobId int, jobStatus string) (*models.Get
 
 	log.Printf("[EyesOnT API] GetJobs PARSED: result=%s, count=%d, jobsLen=%d", result.Result, result.Count, len(result.Jobs))
 	return &result, nil
+}
+
+// CheckConnection checks if the API is reachable
+func (c *Client) CheckConnection() bool {
+	// Simple health check using login endpoint (assuming session is valid, or just checking reachability)
+	// We can use a lightweight call, or just try to connect to base URL.
+	// Since there isn't a dedicated "ping", we'll check if we can reach the server.
+
+	resp, err := c.httpClient.Get(c.BaseURL + "/ipa/apis/json/general/login") // Method Not Allowed is fine, means we reached it.
+	// Actually, our simulator only has POST.
+	// Let's try to perform a dummy POST to login with bad credentials, or just check connectivity.
+	// Or we can assume if the last request was < X seconds ago and successful, we are good.
+	// But "real-time" check requires a request.
+
+	// Better approach: Try a lightweight request or just a TCP dial?
+	// Let's reuse doRequest for consistency (WAF handling etc), but with short timeout?
+	// We'll just try to hit detailed status.
+
+	// For simulator purposes, checking if we can get a response from any endpoint.
+	// We will use a dummy request to /ipa/apis/json/general/login
+
+	// NOTE: Since our simulator expects POST, a GET might return 404 or 405, but that implies connectivity = ONLINE.
+	// Connection Refused means OFFLINE.
+
+	req, _ := http.NewRequest("POST", c.BaseURL+"/ipa/apis/json/general/login", nil)
+	// Short timeout for check
+	client := *c.httpClient
+	client.Timeout = 2 * time.Second
+
+	resp, err = client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return true
 }
 
 // Close закрывает клиент

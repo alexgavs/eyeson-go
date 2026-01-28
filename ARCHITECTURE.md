@@ -1,48 +1,192 @@
 # EyesOn - System Architecture
 
-> Last Updated: January 29, 2026
+> Last Updated: January 28, 2026
 
 ## 📋 Overview
 
 **EyesOn** is a SIM card management system with a web interface, built on Go (backend) and React/TypeScript (frontend). It acts as a secure proxy to the Pelephone EyesOnT API, providing authentication, caching, user management, and role-based access control.
 
----
-
-## 🏗️ System Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           CLIENT (Browser)                               │
-│                      React 18 SPA + Bootstrap 5                          │
-│                      VS Code Dark+/Light+ Themes                         │
-└─────────────────────────────────┬───────────────────────────────────────┘
-                                  │ HTTP/REST
-                                  ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                       GO FIBER SERVER (:5000)                            │
-│  ┌───────────┐  ┌──────────────┐  ┌──────────┐  ┌─────────────────────┐ │
-│  │  Routes   │→ │  Middleware  │→ │ Handlers │→ │      Database       │ │
-│  │ (47 total)│  │ (JWT/RBAC)   │  │  (CRUD)  │  │   (SQLite/GORM)     │ │
-│  └───────────┘  └──────────────┘  └────┬─────┘  └─────────────────────┘ │
-│                                        │                                 │
-│                                        ▼                                 │
-│                              ┌──────────────────┐                        │
-│                              │  EyesOnT Client  │                        │
-│                              │  (API Proxy)     │                        │
-│                              └────────┬─────────┘                        │
-└───────────────────────────────────────┼─────────────────────────────────┘
-                                        │ HTTPS
-                                        ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                    PELEPHONE EyesOnT API (:8888)                         │
-│              https://eot-portal.pelephone.co.il:8888                     │
-│                     (External SIM Management)                            │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+**Key Features:**
+- 🔄 **DB-First Architecture** — Works offline, syncs when API available
+- ⚡ **Priority Queue System** — User actions take precedence over background sync
+- 📊 **Real-time UI Updates** — Live countdown, auto-refresh without F5
+- 🎭 **Built-in Simulator** — Test without real Pelephone credentials
 
 ---
 
-## 📁 Project Structure
+## 🏗️ Full System Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                         🌐 БРАУЗЕР (http://localhost:5000)                      │
+│                      React 18 + TypeScript + Bootstrap 5                         │
+│   ┌─────────────┐  ┌──────────────┐  ┌─────────┐  ┌─────────┐  ┌───────────┐   │
+│   │ SIM Cards   │  │  Queue       │  │ Jobs    │  │ Admin   │  │ History   │   │
+│   │ (CRUD)      │  │ (Countdown)  │  │ (Tasks) │  │ (Users) │  │ (Audit)   │   │
+│   └──────┬──────┘  └──────┬───────┘  └────┬────┘  └────┬────┘  └─────┬─────┘   │
+└──────────┼────────────────┼───────────────┼───────────┼──────────────┼─────────┘
+           │                │               │           │              │
+           └────────────────┴───────────────┴───────────┴──────────────┘
+                                           │ REST API
+                                           ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                         🔧 GO FIBER SERVER (:5000)                               │
+│  ┌────────────────────────────────────────────────────────────────────────────┐ │
+│  │                              HANDLERS                                       │ │
+│  │  sims.go    │  jobs.go    │  auth.go    │  history.go   │  stats.go        │ │
+│  │  • GetSims  │  • GetJobs  │  • Login    │  • GetHistory │  • GetStats      │ │
+│  │  • Update   │  • Execute  │  • JWT      │  • Audit Log  │  • Dashboard     │ │
+│  │  • Bulk     │  • Queue    │  • RBAC     │               │                  │ │
+│  └────────────────────────────────────────────────────────────────────────────┘ │
+│                                           │                                      │
+│  ┌──────────────────┐    ┌────────────────┴───────────────┐                     │
+│  │  📦 DATABASE     │◄───│         MODELS (GORM)          │                     │
+│  │   (SQLite)       │    │  • SimCard    • User           │                     │
+│  │                  │    │  • SyncTask   • Role           │                     │
+│  │   eyeson.db      │    │  • SimHistory • ActivityLog    │                     │
+│  └──────────────────┘    └────────────────────────────────┘                     │
+│                                           │                                      │
+│  ┌────────────────────────────────────────┴────────────────────────────────┐    │
+│  │                     🔄 BACKGROUND SERVICES                               │    │
+│  │  ┌─────────────────────────┐    ┌─────────────────────────────────┐     │    │
+│  │  │       JOB WORKER        │    │           SYNCER                │     │    │
+│  │  │   (каждую 1 секунду)    │    │     (каждые 5 минут)            │     │    │
+│  │  │                         │    │                                 │     │    │
+│  │  │  • Polls PENDING tasks  │    │  • Fetches ALL SIMs from API   │     │    │
+│  │  │  • Executes API calls   │    │  • Compares API vs DB          │     │    │
+│  │  │  • Updates DB + History │    │  • Creates/Updates SimCards    │     │    │
+│  │  │  • Handles retries      │    │  • Records History changes     │     │    │
+│  │  │  • Priority: HIGH ⚡    │    │  • Priority: LOW (yields) 🐢   │     │    │
+│  │  └───────────┬─────────────┘    └──────────────────────┬──────────┘     │    │
+│  │              │                                         │                │    │
+│  │              └──────────────┬──────────────────────────┘                │    │
+│  │                             ▼                                           │    │
+│  │                    ┌─────────────────────────┐                          │    │
+│  │                    │    EYESONT CLIENT       │                          │    │
+│  │                    │  (API Proxy + Sessions) │                          │    │
+│  │                    └───────────┬─────────────┘                          │    │
+│  └────────────────────────────────┼────────────────────────────────────────┘    │
+└───────────────────────────────────┼─────────────────────────────────────────────┘
+                                    │ HTTP (cookie-based auth)
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                    📡 PELEPHONE SIMULATOR (:8888)                                │
+│                    (или реальный Pelephone API)                                  │
+│                                                                                  │
+│    ┌──────────────────┐   ┌───────────────────────────────────────────┐         │
+│    │   Admin Panel    │   │            API Endpoints                  │         │
+│    │   /web           │   │  • POST /ipa/apis/json/general/login      │         │
+│    │                  │   │  • POST /ipa/apis/.../getProvisioningData │         │
+│    │  • Generate SIMs │   │  • POST /ipa/apis/.../updateSIMStatus     │         │
+│    │  • Set Mode      │   │                                           │         │
+│    │  • View Stats    │   │  Modes: NORMAL / REFUSED / DOWN           │         │
+│    └──────────────────┘   └───────────────────────────────────────────┘         │
+│                                                                                  │
+│    └─────────────────────── simulator.db (SQLite) ─────────────────────┘        │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## � Data Flow Diagrams
+
+### 1️⃣ Change SIM Status Flow
+
+```
+┌─────────────┐    1. Click "Activate/Suspend"
+│  FRONTEND   │────────────────────────────────┐
+│  (React)    │                                │
+└─────────────┘                                ▼
+                                    ┌─────────────────────┐
+                                    │  POST /api/sims/    │
+                                    │  bulk-status        │
+                                    └──────────┬──────────┘
+                                               │
+                                               ▼
+                              ┌──────────────────────────────┐
+                              │  handlers/sims.go            │
+                              │  BulkChangeStatus()          │
+                              │                              │
+                              │  2. Create SyncTask          │
+                              │     Type: "CHANGE_STATUS"    │
+                              │     Status: "PENDING"        │
+                              └──────────────┬───────────────┘
+                                             │
+                                             ▼
+                                  ┌───────────────────────┐
+                                  │  📦 DATABASE          │
+                                  │  sync_tasks table     │
+                                  └───────────┬───────────┘
+                                              │
+        ┌─────────────────────────────────────┘
+        │                    (polls every 1 second)
+        ▼
+┌───────────────────────────────────────────────────────────────┐
+│  jobs/worker.go                                               │
+│  ProcessPendingTasks() → handleChangeStatus()                 │
+│                                                               │
+│  3. Call API: Client.BulkUpdate("SIM_STATE_CHANGE", status)   │
+│                                                               │
+│  4. Update Local DB: SimCard.Status = newStatus               │
+│                                                               │
+│  5. Sync from API: syncSimsFromAPI(msisdns) ← AUTO-SYNC!      │
+│                                                               │
+│  6. Create SimHistory records (audit trail)                   │
+│                                                               │
+│  7. Update SyncTask.Status = "COMPLETED"                      │
+└───────────────────────────────────────────────────────────────┘
+```
+
+### 2️⃣ Background Sync Flow (Syncer)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  syncer/syncer.go                                           │
+│  SyncFull() - runs every 5 minutes                          │
+│                                                             │
+│  1. Check for pending user tasks (Priority Check)           │
+│     └── If pending → WAIT 2 seconds, then retry             │
+│                                                             │
+│  2. Fetch from API: GetSims(start, limit=500)               │
+│                                                             │
+│  3. For each batch:                                         │
+│     ┌──────────────────────────────────────────────────┐    │
+│     │  a) Compare API data vs Local DB                 │    │
+│     │  b) If NEW → Create SimCard                      │    │
+│     │  c) If CHANGED → Update SimCard + Create History │    │
+│     │  d) Fields tracked: Status, IP, IMEI, ICCID      │    │
+│     └──────────────────────────────────────────────────┘    │
+│                                                             │
+│  4. Continue until all SIMs processed                       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 3️⃣ JWT Authentication Flow
+
+```
+Frontend                   Backend                    Database
+   │                          │                          │
+   │  POST /api/auth/login    │                          │
+   │  {username, password}    │                          │
+   │────────────────────────>│                          │
+   │                          │  Find User by username   │
+   │                          │─────────────────────────>│
+   │                          │  Compare bcrypt hash     │
+   │                          │<─────────────────────────│
+   │                          │                          │
+   │  {token: "JWT...",       │                          │
+   │   user: {...}}           │                          │
+   │<────────────────────────│                          │
+   │                          │                          │
+   │  All subsequent requests │                          │
+   │  Header: Authorization:  │                          │
+   │  Bearer <token>          │                          │
+   │────────────────────────>│  Middleware validates    │
+```
+
+---
+
+## �📁 Project Structure
 
 ```
 eyeson-go/
@@ -64,6 +208,10 @@ eyeson-go/
 │   │   │   ├── sims.go         # SIM operations
 │   │   │   ├── jobs.go         # Job tracking
 │   │   │   └── stats.go        # Statistics
+│   │   ├── jobs/               # Background Worker (Priority)
+│   │   │   └── worker.go       # Task consumer
+│   │   ├── syncer/             # Data Synchronization
+│   │   │   └── syncer.go       # Background data fetcher
 │   │   ├── models/
 │   │   │   ├── db.go           # GORM models
 │   │   │   └── api.go          # API structures
@@ -97,6 +245,21 @@ eyeson-go/
 
 ---
 
+## ⚡ Background Processing & Concurrency
+
+The system uses a **Priority-Based Concurrency Model** to ensure UI responsiveness.
+
+1.  **Job Worker (`internal/jobs`)**:
+    *   Polls the database every **1 second** for new tasks (User actions).
+    *   Executes tasks (e.g., Change SIM Status) immediately.
+
+2.  **Data Syncer (`internal/syncer`)**:
+    *   Fetches large datasets (20k+ SIMs) from the external API in chunks.
+    *   **Cooperative Multitasking**: Before processing each chunk (500 records), the Syncer checks for pending user tasks.
+    *   **Yielding**: If a user task is pending, the Syncer **pauses/yields for 2 seconds** to allow the Worker to process the user's request, preventing "resource starvation".
+
+---
+
 ## 🔧 Technology Stack
 
 ### Backend (Go)
@@ -122,6 +285,65 @@ eyeson-go/
 ---
 
 ## 📊 Data Models
+
+### SimCard (Primary Entity)
+
+```go
+type SimCard struct {
+    gorm.Model
+    MSISDN      string    `gorm:"uniqueIndex"` // Phone number
+    CLI         string    `gorm:"index"`       // Caller Line ID
+    IMSI        string    `gorm:"index"`       // Subscriber ID
+    ICCID       string                         // SIM card ID
+    IMEI        string                         // Device ID
+    Status      string    `gorm:"index"`       // Activated/Suspended/Terminated
+    RatePlan    string    `gorm:"index"`       // Tariff plan
+    Label1-3    string                         // Custom labels
+    APN         string                         // Access Point Name
+    IP          string                         // Assigned IP
+    UsageMB     float64                        // Monthly usage
+    AllocatedMB float64                        // Monthly quota
+    LastSession time.Time                      // Last connection
+    InSession   bool                           // Currently connected
+    LastSyncAt  time.Time `gorm:"index"`       // Last API sync
+}
+```
+
+### SyncTask (Queue System)
+
+```go
+type SyncTask struct {
+    ID           uint      `gorm:"primaryKey"`
+    Type         string    `gorm:"index"`   // CHANGE_STATUS, UPDATE_SIM, SYNC_FULL
+    Status       string    `gorm:"index"`   // PENDING, PROCESSING, COMPLETED, FAILED
+    Payload      string    `gorm:"text"`    // JSON payload
+    Result       string    `gorm:"text"`    // Error or result message
+    TargetMSISDN string    `gorm:"index"`   // For quick lookup
+    Attempt      int       `gorm:"default:0"`
+    MaxAttempts  int       `gorm:"default:5"`
+    NextRunAt    time.Time `gorm:"index"`   // Scheduled execution
+    CreatedBy    string                     // Username
+    IPAddress    string                     // Client IP
+}
+```
+
+### SimHistory (Audit Trail)
+
+```go
+type SimHistory struct {
+    ID        uint      `gorm:"primaryKey"`
+    CreatedAt time.Time
+    SimID     uint      `gorm:"index"`
+    MSISDN    string    `gorm:"index"`
+    Action    string    // STATUS_CHANGE, SYNC_UPDATE, CREATED
+    Field     string    // Changed field name
+    OldValue  string
+    NewValue  string
+    Source    string    // USER, SYNC, WORKER
+    ChangedBy string    // Username
+    TaskID    *uint     // Link to SyncTask
+}
+```
 
 ### User
 
@@ -156,6 +378,32 @@ type Role struct {
 | Administrator | Full access to all endpoints |
 | Moderator | sims:read, sims:write, jobs:read |
 | Viewer | sims:read |
+
+---
+
+## ⚙️ Configuration
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | 5000 | Server port |
+| `DATABASE_PATH` | eyeson.db | SQLite file path |
+| `EYESON_API_BASE_URL` | `http://127.0.0.1:8888` | API URL (simulator by default) |
+| `EYESON_API_USERNAME` | admin | API login |
+| `EYESON_API_PASSWORD` | admin | API password |
+| `EYESON_API_DELAY_MS` | 10 | Delay between API requests |
+| `JWT_SECRET` | change-me-in-prod | JWT signing key |
+
+### Switching to Real Pelephone API
+
+Edit `.env` file:
+```env
+EYESON_API_BASE_URL=https://eot-portal.pelephone.co.il:8888
+EYESON_API_USERNAME=your_username
+EYESON_API_PASSWORD=your_password
+EYESON_API_DELAY_MS=1000
+```
 
 ---
 
@@ -424,3 +672,45 @@ go build -o server.exe ./cmd/server
 - WAF may block requests with `limit=1`
 - Use `limit=25+` for reliable operation
 - Implement retry logic for timeouts
+
+---
+
+## 🚀 Quick Start
+
+### Run with Simulator (Recommended for Testing)
+
+```batch
+# Terminal 1: Start Simulator
+cd pelephone-simulator
+run.bat
+# → Simulator running on http://localhost:8888
+# → Admin Panel: http://localhost:8888/web
+
+# Terminal 2: Start Server
+cd eyeson-go-server
+build_and_run.bat
+# → Server running on http://localhost:5000
+
+# Open Browser
+http://localhost:5000
+# Login: admin / admin123
+```
+
+### Run with Real Pelephone API
+
+1. Edit `eyeson-go-server/.env`
+2. Set real API credentials
+3. Run `build_and_run.bat`
+
+---
+
+## 📚 Related Documentation
+
+| File | Description |
+|------|-------------|
+| [QUICKSTART.md](QUICKSTART.md) | Quick start guide (3 steps) |
+| [TESTING_GUIDE.md](TESTING_GUIDE.md) | Testing scenarios |
+| [SIMULATOR_CONFIG.md](SIMULATOR_CONFIG.md) | Simulator vs Real API |
+| [DB_FIRST_ARCHITECTURE.md](DB_FIRST_ARCHITECTURE.md) | Offline-first design |
+| [AUTO_SYNC_AFTER_TASK.md](AUTO_SYNC_AFTER_TASK.md) | Auto-sync feature |
+| [QUEUE_FEATURES.md](QUEUE_FEATURES.md) | Queue system details |

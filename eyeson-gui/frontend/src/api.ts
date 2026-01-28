@@ -113,7 +113,7 @@ export const ChangeStatus = async (msisdns: string[], status: string): Promise<C
         const data = await response.json();
         console.log('[ChangeStatus] Response:', response.status, data);
         
-        if (response.ok && data.result === "SUCCESS") {
+        if (response.ok && (data.result === "SUCCESS" || data.result === "queued")) {
             return { success: true, requestId: data.requestId };
         }
         
@@ -133,12 +133,13 @@ export const ChangeStatus = async (msisdns: string[], status: string): Promise<C
 export const GetJobStatus = async (jobId: number) => {
     try {
         const token = localStorage.getItem('token');
-        const response = await fetch(`${BASE_URL}/jobs?job_id=${jobId}`, {
+        // Use local endpoint since we are tracking internal SyncTasks
+        const response = await fetch(`${BASE_URL}/jobs/local/${jobId}`, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await response.json();
-        if (response.ok && data.data?.length > 0) {
-            return data.data[0]; // Возвращаем первый Job
+        if (response.ok) {
+            return data; // Returns { jobStatus: "...", ... }
         }
         return null;
     } catch (e) {
@@ -336,5 +337,111 @@ export const GetAPIStatus = async (): Promise<APIStatusResponse | null> => {
     } catch (e) {
         console.error('Error fetching API status:', e);
         return null;
+    }
+};
+
+// Queue Type Definitions
+export interface QueueTask {
+    id: number;
+    type: string;
+    payload: any;
+    status: string;
+    created_at: string;
+    attempts: number;
+    last_error: string;
+}
+
+// Get Queue
+export const GetSyncQueue = async (): Promise<{count: number, data: QueueTask[]}> => {
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${BASE_URL}/jobs/queue`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        
+        if (response.ok) {
+            return await response.json();
+        }
+        
+        throw new Error("Failed to fetch queue");
+    } catch (e) {
+        console.error('Error fetching queue:', e);
+        return { count: 0, data: [] };
+    }
+};
+
+// Toggle API Connection (Simulate Network Failure or Set Mode)
+export const ToggleAPIConnection = async (action: string, mode?: string): Promise<{result: string, message: string}> => {
+    try {
+        const token = localStorage.getItem('token');
+        const body: any = { action };
+        if (mode) body.mode = mode;
+
+        const response = await fetch(`${BASE_URL}/api-connection`, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(body)
+        });
+        
+        const data = await response.json();
+        if (response.ok) return data;
+        throw new Error(data.error || "Action failed");
+    } catch (e) {
+        console.error('Error toggling API connection:', e);
+        throw e;
+    }
+};
+
+// Execute Queue Task Immediately
+export const ExecuteQueueTask = async (taskId: number): Promise<{result: string, message: string}> => {
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${BASE_URL}/jobs/queue/${taskId}/execute`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        
+        const data = await response.json();
+        if (response.ok) return data;
+        throw new Error(data.error || "Failed to execute task");
+    } catch (e) {
+        console.error('Error executing queue task:', e);
+        throw e;
+    }
+};
+
+export interface SimHistory {
+    id: number;
+    created_at: string;
+    msisdn: string;
+    action: string;
+    field: string;
+    old_value: string;
+    new_value: string;
+    source: string;
+}
+
+export const GetSimHistory = async (msisdn: string): Promise<SimHistory[]> => {
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${BASE_URL}/sims/${msisdn}/history`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        
+        const data = await response.json();
+        if (response.ok) return data.data || [];
+        throw new Error(data.error || "Failed to fetch history");
+    } catch (e) {
+        console.error(e);
+        return [];
     }
 };

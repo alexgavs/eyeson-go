@@ -51,6 +51,7 @@ type SimData struct {
 	AllocatedMB      string `json:"ALLOCATED_MB"`
 	LastSessionTime  string `json:"LAST_SESSION_TIME"`
 	InSession        string `json:"IN_SESSION"`
+	SyncStatus       string `json:"SYNC_STATUS,omitempty"` // PENDING, PROCESSING, or empty
 }
 
 type GetProvisioningDataResponse struct {
@@ -114,4 +115,19 @@ type GetJobsResponse struct {
 	ResponseBase
 	Count int   `json:"count"`
 	Jobs  []Job `json:"jobs"`
+}
+
+// API Connection Status models
+type APIConnectionInfo struct {
+	Status         string            `json:"status"`
+	ResponseTimeMs int               `json:"response_time_ms,omitempty"`
+	Details        map[string]string `json:"details,omitempty"`
+	Error          string            `json:"error,omitempty"`
+}
+
+type APIStatusResponse struct {
+	EyesonAPI   APIConnectionInfo `json:"eyeson_api"`
+	GoBackend   APIConnectionInfo `json:"go_backend"`
+	Database    APIConnectionInfo `json:"database"`
+	LastChecked string            `json:"last_checked"`
 }

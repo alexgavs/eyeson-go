@@ -1,0 +1,331 @@
+package jobs
+
+import (
+	"encoding/json"
+	"eyeson-go-server/internal/eyesont"
+	"eyeson-go-server/internal/models"
+	"fmt"
+	"log"
+	"strings"
+	"sync/atomic"
+	"time"
+
+	"gorm.io/gorm"
+)
+
+type Worker struct {
+	DB     *gorm.DB
+	Client *eyesont.Client
+	paused int32
+}
+
+func New(db *gorm.DB) *Worker {
+	return &Worker{
+		DB:     db,
+		Client: eyesont.Instance,
+	}
+}
+
+func (w *Worker) SetPaused(paused bool) {
+	var val int32 = 0
+	if paused {
+		val = 1
+	}
+	atomic.StoreInt32(&w.paused, val)
+	status := "RESUMED"
+	if paused {
+		status = "PAUSED"
+	}
+	log.Printf("[JobWorker] Status changed to %s", status)
+}
+
+func (w *Worker) IsPaused() bool {
+	return atomic.LoadInt32(&w.paused) == 1
+}
+
+func (w *Worker) Start() {
+	log.Println("[JobWorker] Starting background job worker...")
+	go func() {
+		ticker := time.NewTicker(1 * time.Second) // Check every 1 second for responsiveness
+		for range ticker.C {
+			if w.IsPaused() {
+				continue
+			}
+			w.ProcessPendingTasks()
+		}
+	}()
+}
+
+func (w *Worker) ProcessPendingTasks() {
+	var tasks []models.SyncTask
+
+	// Fetch pending tasks
+	if err := w.DB.Where("status = ? AND next_run_at <= ?", "PENDING", time.Now()).Find(&tasks).Error; err != nil {
+		log.Printf("[JobWorker] Error fetching tasks: %v", err)
+		return
+	}
+
+	for _, task := range tasks {
+		w.processTask(task)
+	}
+}
+
+func (w *Worker) processTask(task models.SyncTask) {
+	log.Printf("[JobWorker] Processing task ID=%d Type=%s Target=%s", task.ID, task.Type, task.TargetMSISDN)
+
+	// Update status to PROCESSING
+	w.DB.Model(&task).Updates(map[string]interface{}{
+		"status":     "PROCESSING",
+		"updated_at": time.Now(),
+	})
+
+	var err error
+	var result string
+
+	switch task.Type {
+	case "UPDATE_SIM":
+		result, err = w.handleUpdateSim(task)
+	case "CHANGE_STATUS":
+		result, err = w.handleChangeStatus(task)
+	default:
+		err = fmt.Errorf("unknown task type: %s", task.Type)
+	}
+
+	status := "COMPLETED"
+	if err != nil {
+		errMsg := err.Error()
+		result = errMsg
+		log.Printf("[JobWorker] Task ID=%d FAILED: %v", task.ID, err)
+
+		// Determine Failure Type
+		isNetworkError := strings.Contains(errMsg, "connect refused") || strings.Contains(errMsg, "no such host") || strings.Contains(errMsg, "timeout")
+		isRefused := strings.Contains(errMsg, "500") || strings.Contains(errMsg, "403") || strings.Contains(errMsg, "Server Internal Error")
+
+		// Logic based on error type
+		if isNetworkError {
+			// SERVER NOT WORKING -> Keep retrying with long backoff or pause?
+			// Strategy: Exponential backoff, up to MaxAttempts (or maybe infinite?)
+			// User request: "If server not working" -> implying specific handling.
+			// We will just treat it as a retryable error with backoff.
+			log.Printf("[JobWorker] Network Error detected. Server might be DOWN.")
+		} else if isRefused {
+			// SERVER REFUSED -> Maybe retry fewer times?
+			log.Printf("[JobWorker] Server REFUSED the request.")
+		}
+
+		// Retry logic
+		if task.Attempt < task.MaxAttempts {
+			backoffMinutes := task.Attempt + 1
+			if isNetworkError {
+				backoffMinutes = (task.Attempt + 1) * 2 // Slower backoff for network issues
+			}
+
+			w.DB.Model(&task).Updates(map[string]interface{}{
+				"status":      "PENDING", // Back to pending
+				"attempt":     task.Attempt + 1,
+				"next_run_at": time.Now().Add(time.Minute * time.Duration(backoffMinutes)),
+				"result":      "RETRYING: " + result,
+			})
+			return
+		} else {
+			status = "FAILED"
+		}
+	} else {
+		log.Printf("[JobWorker] Task ID=%d COMPLETED", task.ID)
+	}
+
+	w.DB.Model(&task).Updates(map[string]interface{}{
+		"status":     status,
+		"result":     result,
+		"updated_at": time.Now(),
+	})
+
+	// Create History Log for final status
+	if status == "FAILED" || status == "COMPLETED" {
+		w.DB.Create(&models.SimHistory{
+			MSISDN:   task.TargetMSISDN,
+			Action:   "TASK_" + status,
+			Field:    "status", // generic
+			NewValue: status,
+			Source:   "WORKER",
+			TaskID:   &task.ID,
+			OldValue: result, // Store error or result msg
+		})
+	}
+}
+
+// Payload structs matching handlers
+type UpdateSimPayload struct {
+	Msisdn string `json:"msisdn"`
+	Field  string `json:"field"`
+	Value  string `json:"value"`
+}
+
+func (w *Worker) handleUpdateSim(task models.SyncTask) (string, error) {
+	var p UpdateSimPayload
+	if err := json.Unmarshal([]byte(task.Payload), &p); err != nil {
+		return "", err
+	}
+
+	// Call API
+	resp, err := w.Client.BulkUpdate([]string{p.Msisdn}, p.Field, p.Value)
+	if err != nil {
+		return "", err
+	}
+
+	if resp != nil && resp.Result != "succeeded" && resp.Result != "SUCCESS" {
+		return "", fmt.Errorf("API Error: %s - %s", resp.Result, resp.Message)
+	}
+
+	// Update local DB to reflect change immediately (optimistic)
+	// Note: Field names in API might differ from DB.
+	// We can either map them or wait for next Sync.
+	// For now, let's just log it. Real-time update is safer via Sync.
+	// But we can trigger a single sync?
+	// For now, just succeed.
+
+	// Create History
+	w.DB.Create(&models.SimHistory{
+		SimID:    0, // We need to lookup ID, skipped for now
+		MSISDN:   p.Msisdn,
+		Action:   "UPDATE_FIELD",
+		Field:    p.Field,
+		NewValue: p.Value,
+		Source:   "SYNC_WORKER",
+		TaskID:   &task.ID,
+	})
+
+	// Sync updated SIM from API to ensure consistency
+	w.syncSimsFromAPI([]string{p.Msisdn})
+
+	return "Update successful", nil
+}
+
+type BulkStatusPayload struct {
+	Msisdns []string `json:"msisdns"`
+	Status  string   `json:"status"`
+}
+
+func (w *Worker) handleChangeStatus(task models.SyncTask) (string, error) {
+	var p BulkStatusPayload
+	if err := json.Unmarshal([]byte(task.Payload), &p); err != nil {
+		return "", err
+	}
+
+	if len(p.Msisdns) == 0 {
+		return "No MSISDNs", nil
+	}
+
+	// Call API
+	resp, err := w.Client.BulkUpdate(p.Msisdns, "SIM_STATE_CHANGE", p.Status)
+	if err != nil {
+		return "", err
+	}
+
+	if resp != nil && resp.Result != "succeeded" && resp.Result != "SUCCESS" {
+		return "", fmt.Errorf("API Error: %s - %s", resp.Result, resp.Message)
+	}
+
+	// Fetch old statuses before update
+	var oldSims []models.SimCard
+	w.DB.Where("msisdn IN ?", p.Msisdns).Find(&oldSims)
+	oldStatusMap := make(map[string]string)
+	for _, sim := range oldSims {
+		oldStatusMap[sim.MSISDN] = sim.Status
+	}
+
+	// Update local DB for immediate UI feedback
+	w.DB.Model(&models.SimCard{}).Where("msisdn IN ?", p.Msisdns).Update("status", p.Status)
+
+	// Sync updated data from API to ensure consistency
+	w.syncSimsFromAPI(p.Msisdns)
+
+	// Create history records for each SIM
+	for _, msisdn := range p.Msisdns {
+		oldStatus := oldStatusMap[msisdn]
+		if oldStatus == "" {
+			oldStatus = "Unknown"
+		}
+
+		w.DB.Create(&models.SimHistory{
+			MSISDN:    msisdn,
+			Action:    "STATUS_CHANGE",
+			Field:     "status",
+			OldValue:  oldStatus,
+			NewValue:  p.Status,
+			Source:    "WORKER",
+			ChangedBy: "system",
+			TaskID:    &task.ID,
+		})
+	}
+
+	return fmt.Sprintf("Updated %d SIMs", len(p.Msisdns)), nil
+}
+
+// syncSimsFromAPI fetches and updates SIM data from API after task completion
+func (w *Worker) syncSimsFromAPI(msisdns []string) {
+	if w.Client == nil || len(msisdns) == 0 {
+		return
+	}
+
+	log.Printf("[JobWorker] Syncing %d SIMs from API after task completion", len(msisdns))
+
+	// Fetch updated data from API for each MSISDN
+	for _, msisdn := range msisdns {
+		// Build search criteria for this specific SIM
+		searchCriteria := []models.SearchParam{
+			{
+				FieldName:  "MSISDN",
+				FieldValue: msisdn,
+			},
+		}
+
+		// Fetch from API
+		resp, err := w.Client.GetSims(0, 1, searchCriteria, "", "")
+		if err != nil {
+			log.Printf("[JobWorker] Failed to sync SIM %s: %v", msisdn, err)
+			continue
+		}
+
+		if len(resp.Data) == 0 {
+			log.Printf("[JobWorker] SIM %s not found in API response", msisdn)
+			continue
+		}
+
+		simData := resp.Data[0]
+
+		// Update database with fresh data from API
+		var sim models.SimCard
+		result := w.DB.Where("msisdn = ?", msisdn).First(&sim)
+
+		if result.Error != nil {
+			// SIM doesn't exist, create it
+			sim = models.SimCard{
+				MSISDN: msisdn,
+			}
+		}
+
+		// Update all fields from API
+		sim.CLI = simData.CLI
+		sim.IMSI = simData.IMSI
+		sim.ICCID = simData.SimSwap
+		sim.IMEI = simData.IMEI
+		sim.Status = simData.SimStatusChange
+		sim.RatePlan = simData.RatePlanFullName
+		sim.Label1 = simData.CustomerLabel1
+		sim.Label2 = simData.CustomerLabel2
+		sim.Label3 = simData.CustomerLabel3
+		sim.APN = simData.ApnName
+		sim.IP = simData.Ip1
+		sim.InSession = simData.InSession == "true"
+
+		// Save to DB
+		if result.Error != nil {
+			w.DB.Create(&sim)
+		} else {
+			w.DB.Save(&sim)
+		}
+
+		log.Printf("[JobWorker] ✅ Synced SIM %s from API", msisdn)
+	}
+}

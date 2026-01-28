@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pelephone API Simulator - Admin Panel</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #fff;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+        }
+        header h1 {
+            font-size: 2em;
+            margin-bottom: 5px;
+            color: #00d9ff;
+        }
+        header p {
+            color: #888;
+        }
+        .card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .card h2 {
+            color: #00d9ff;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+        }
+        .stat-box {
+            background: rgba(0,217,255,0.1);
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .stat-box .value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #00d9ff;
+        }
+        .stat-box .label {
+            color: #888;
+            font-size: 0.9em;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        input[type="number"] {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: #fff;
+            padding: 10px 15px;
+            border-radius: 5px;
+            width: 120px;
+            font-size: 1em;
+        }
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        .btn-primary {
+            background: #00d9ff;
+            color: #1a1a2e;
+        }
+        .btn-danger {
+            background: #ff4757;
+            color: #fff;
+        }
+        .btn-success {
+            background: #2ed573;
+            color: #fff;
+        }
+        .btn-warning {
+            background: #ffa502;
+            color: #1a1a2e;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        .toggle-switch {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .switch {
+            position: relative;
+            width: 60px;
+            height: 30px;
+        }
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ff4757;
+            transition: .4s;
+            border-radius: 30px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 22px;
+            width: 22px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: #2ed573;
+        }
+        input:checked + .slider:before {
+            transform: translateX(30px);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        th {
+            background: rgba(0,217,255,0.1);
+            color: #00d9ff;
+        }
+        tr:hover {
+            background: rgba(255,255,255,0.05);
+        }
+        .status-badge {
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: bold;
+        }
+        .status-Active { background: #2ed573; color: #fff; }
+        .status-Suspended { background: #ffa502; color: #1a1a2e; }
+        .status-Terminated { background: #ff4757; color: #fff; }
+        .status-Pre-Active { background: #3742fa; color: #fff; }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+        }
+        .action-btn {
+            padding: 5px 10px;
+            font-size: 0.8em;
+            margin: 2px;
+        }
+        select {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: #fff;
+            padding: 5px 10px;
+            border-radius: 5px;
+        }
+        select option {
+            background: #1a1a2e;
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔧 Pelephone API Simulator</h1>
+            <p>Admin Panel - Manage simulated SIM cards for testing</p>
+        </header>
+
+        <div class="card">
+            <h2>📊 Simulator Status</h2>
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <div class="value" id="simCount">-</div>
+                    <div class="label">SIM Cards</div>
+                </div>
+                <div class="stat-box">
+                    <div class="value" id="activeCount">-</div>
+                    <div class="label">Active</div>
+                </div>
+                <div class="stat-box">
+                    <div class="value" id="suspendedCount">-</div>
+                    <div class="label">Suspended</div>
+                </div>
+                <div class="stat-box">
+                    <div class="value" id="terminatedCount">-</div>
+                    <div class="label">Terminated</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>⚙️ Configuration</h2>
+            <div class="controls">
+                <div class="toggle-switch">
+                    <span>Simulator:</span>
+                    <label class="switch">
+                        <input type="checkbox" id="enabledToggle" checked>
+                        <span class="slider"></span>
+                    </label>
+                    <span id="enabledStatus">Enabled</span>
+                </div>
+                <span style="margin-left: auto;"></span>
+                <input type="number" id="simCountInput" placeholder="Count" min="1" max="10000" value="50">
+                <button class="btn-primary" onclick="generateSims()">🔄 Generate SIMs</button>
+                <button class="btn-danger" onclick="clearSims()">🗑️ Clear All</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>📱 SIM Cards (first 100)</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>CLI</th>
+                        <th>Status</th>
+                        <th>Rate Plan</th>
+                        <th>Label</th>
+                        <th>Usage (MB)</th>
+                        <th>Last Session</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="simsTable">
+                    <tr><td colspan="7" class="loading">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/web/api';
+
+        async function loadConfig() {
+            try {
+                const res = await fetch(`${API_BASE}/config`);
+                const data = await res.json();
+                document.getElementById('simCount').textContent = data.actual_count || 0;
+                document.getElementById('simCountInput').value = data.sim_count || 50;
+                document.getElementById('enabledToggle').checked = data.enabled;
+                document.getElementById('enabledStatus').textContent = data.enabled ? 'Enabled' : 'Disabled';
+            } catch (e) {
+                console.error('Failed to load config:', e);
+            }
+        }
+
+        async function loadSims() {
+            try {
+                const res = await fetch(`${API_BASE}/sims`);
+                const sims = await res.json();
+                
+                let activeCount = 0, suspendedCount = 0, terminatedCount = 0;
+                
+                const tbody = document.getElementById('simsTable');
+                if (!sims || sims.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" class="loading">No SIM cards. Click "Generate SIMs" to create.</td></tr>';
+                    return;
+                }
+                
+                tbody.innerHTML = sims.map(sim => {
+                    if (sim.status === 'Active') activeCount++;
+                    else if (sim.status === 'Suspended') suspendedCount++;
+                    else if (sim.status === 'Terminated') terminatedCount++;
+                    
+                    return `
+                        <tr>
+                            <td>${sim.cli}</td>
+                            <td><span class="status-badge status-${sim.status}">${sim.status}</span></td>
+                            <td>${sim.rate_plan}</td>
+                            <td>${sim.label}</td>
+                            <td>${sim.usage_mb}</td>
+                            <td>${sim.last_session}</td>
+                            <td>
+                                <select onchange="changeStatus('${sim.cli}', this.value)">
+                                    <option value="">Change...</option>
+                                    <option value="Active">Active</option>
+                                    <option value="Suspended">Suspended</option>
+                                    <option value="Terminated">Terminated</option>
+                                    <option value="Pre-Active">Pre-Active</option>
+                                </select>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+                
+                document.getElementById('activeCount').textContent = activeCount;
+                document.getElementById('suspendedCount').textContent = suspendedCount;
+                document.getElementById('terminatedCount').textContent = terminatedCount;
+            } catch (e) {
+                console.error('Failed to load SIMs:', e);
+                document.getElementById('simsTable').innerHTML = '<tr><td colspan="7" class="loading">Error loading SIMs</td></tr>';
+            }
+        }
+
+        async function generateSims() {
+            const count = parseInt(document.getElementById('simCountInput').value) || 50;
+            if (!confirm(`Generate ${count} new SIM cards? This will replace all existing data.`)) return;
+            
+            try {
+                const res = await fetch(`${API_BASE}/generate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ count })
+                });
+                await res.json();
+                loadConfig();
+                loadSims();
+            } catch (e) {
+                alert('Failed to generate SIMs: ' + e.message);
+            }
+        }
+
+        async function clearSims() {
+            if (!confirm('Are you sure you want to delete all SIM cards?')) return;
+            
+            try {
+                await fetch(`${API_BASE}/clear`, { method: 'POST' });
+                loadConfig();
+                loadSims();
+            } catch (e) {
+                alert('Failed to clear SIMs: ' + e.message);
+            }
+        }
+
+        async function changeStatus(cli, status) {
+            if (!status) return;
+            
+            try {
+                await fetch(`${API_BASE}/sim/${cli}/status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status })
+                });
+                loadSims();
+            } catch (e) {
+                alert('Failed to change status: ' + e.message);
+            }
+        }
+
+        document.getElementById('enabledToggle').addEventListener('change', async function() {
+            const enabled = this.checked;
+            document.getElementById('enabledStatus').textContent = enabled ? 'Enabled' : 'Disabled';
+            
+            try {
+                await fetch(`${API_BASE}/config`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        enabled,
+                        sim_count: parseInt(document.getElementById('simCountInput').value) || 50
+                    })
+                });
+            } catch (e) {
+                alert('Failed to update config: ' + e.message);
+            }
+        });
+
+        // Initial load
+        loadConfig();
+        loadSims();
+        
+        // Auto-refresh every 5 seconds
+        setInterval(() => {
+            loadSims();
+        }, 5000);
+    </script>
+</body>
+</html>

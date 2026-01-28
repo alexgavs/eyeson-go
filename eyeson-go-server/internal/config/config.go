@@ -35,11 +35,11 @@ func LoadConfig() (*Config, error) {
 	cfg := &Config{
 		Port:        getEnv("PORT", "5000"),
 		DBPath:      getEnv("DATABASE_PATH", "eyeson.db"),
-		ApiBaseUrl:  getEnv("EYESON_API_BASE_URL", "https://eot-portal.pelephone.co.il:8888"),
-		ApiUsername: getEnv("EYESON_API_USERNAME", ""),
-		ApiPassword: getEnv("EYESON_API_PASSWORD", ""),
+		ApiBaseUrl:  getEnv("EYESON_API_BASE_URL", "http://127.0.0.1:8888"),
+		ApiUsername: getEnv("EYESON_API_USERNAME", "admin"),
+		ApiPassword: getEnv("EYESON_API_PASSWORD", "admin"),
 		JwtSecret:   getEnv("JWT_SECRET", "change-me-in-prod"),
-		ApiDelayMs:  getEnvInt("EYESON_API_DELAY_MS", 1000),
+		ApiDelayMs:  getEnvInt("EYESON_API_DELAY_MS", 10),
 	}
 
 	return cfg, nil

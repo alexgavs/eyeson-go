@@ -5,12 +5,51 @@ import (
 	"eyeson-go-server/internal/database"
 	"eyeson-go-server/internal/eyesont"
 	"eyeson-go-server/internal/models"
+	"fmt"
 	"log"
 	"strconv"
-	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 )
+
+// Helper to convert DB model to API Response format
+func mapModelToApi(m models.SimCard) models.SimData {
+	// Format floats
+	usage := fmt.Sprintf("%.2f", m.UsageMB)
+	allocated := fmt.Sprintf("%.2f", m.AllocatedMB)
+
+	// Format Time
+	// API format: 2023-10-27 10:00:00
+	lastSession := ""
+	if !m.LastSession.IsZero() {
+		lastSession = m.LastSession.Format("2006-01-02 15:04:05")
+	}
+
+	inSession := "false"
+	if m.InSession {
+		inSession = "true"
+	}
+
+	return models.SimData{
+		MSISDN:           m.MSISDN,
+		CLI:              m.CLI,
+		IMSI:             m.IMSI,
+		SimSwap:          m.ICCID,
+		IMEI:             m.IMEI,
+		SimStatusChange:  m.Status,
+		RatePlanFullName: m.RatePlan,
+		CustomerLabel1:   m.Label1,
+		CustomerLabel2:   m.Label2,
+		CustomerLabel3:   m.Label3,
+		ApnName:          m.APN,
+		Ip1:              m.IP,
+		MonthlyUsageMB:   usage,
+		AllocatedMB:      allocated,
+		LastSessionTime:  lastSession,
+		InSession:        inSession,
+	}
+}
 
 func GetSims(c *fiber.Ctx) error {
 	start, _ := strconv.Atoi(c.Query("start", "0"))
@@ -18,133 +57,100 @@ func GetSims(c *fiber.Ctx) error {
 	searchQuery := c.Query("search", "")
 	sortBy := c.Query("sortBy", "")
 	sortDirection := c.Query("sortDirection", "ASC")
-	statusFilter := c.Query("status", "") // Фильтр по статусу: Activated, Suspended, Terminated
+	statusFilter := c.Query("status", "")
 
-	// Логируем входящий запрос
-	log.Printf("[GetSims] REQUEST: start=%d, limit=%d, search='%s', sortBy='%s', sortDirection='%s', status='%s'",
-		start, limit, searchQuery, sortBy, sortDirection, statusFilter)
+	log.Printf("[GetSims] DB REQUEST: start=%d, limit=%d, search='%s', status='%s'", start, limit, searchQuery, statusFilter)
 
-	var searchParams []models.SearchParam
-	useApiSearch := false
+	db := database.DB.Model(&models.SimCard{})
 
-	// Умный поиск: определяем тип поля по паттерну
+	// Filter by Status
+	if statusFilter != "" {
+		db = db.Where("status = ?", statusFilter)
+	}
+
+	// Filter by Search Query
 	if searchQuery != "" {
-		field := ""
-		if len(searchQuery) >= 2 && searchQuery[0:2] == "05" {
-			field = "CLI"
-		} else if len(searchQuery) >= 3 && searchQuery[0:3] == "972" {
-			field = "MSISDN"
-		} else if len(searchQuery) >= 15 && isNumeric(searchQuery) {
-			// IMSI обычно 15 цифр
-			field = "IMSI"
+		query := "%" + searchQuery + "%"
+		db = db.Where("msisdn LIKE ? OR cli LIKE ? OR imsi LIKE ? OR iccid LIKE ? OR label1 LIKE ? OR label2 LIKE ? OR label3 LIKE ?",
+			query, query, query, query, query, query, query)
+	}
+
+	// Count Total
+	var total int64
+	db.Count(&total)
+
+	// Sort
+	if sortBy != "" {
+		// Map API field names to DB columns if necessary
+		dbColumn := sortBy
+		switch sortBy {
+		case "MSISDN":
+			dbColumn = "msisdn"
+		case "CLI":
+			dbColumn = "cli"
+		case "SIM_STATUS_CHANGE":
+			dbColumn = "status"
+		case "CUSTOMER_LABEL_1":
+			dbColumn = "label1"
+		case "LAST_SESSION_TIME":
+			dbColumn = "last_session"
 		}
 
-		if field != "" {
-			useApiSearch = true
-			searchParams = append(searchParams, models.SearchParam{
-				FieldName:  field,
-				FieldValue: searchQuery,
-			})
-			log.Printf("[GetSims] API SEARCH: field=%s, value=%s", field, searchQuery)
+		if sortDirection == "DESC" {
+			db = db.Order(dbColumn + " desc")
 		} else {
-			log.Printf("[GetSims] LOCAL SEARCH: query='%s' (will filter locally)", searchQuery)
+			db = db.Order(dbColumn + " asc")
+		}
+	} else {
+		db = db.Order("updated_at desc")
+	}
+
+	// Pagination
+	var sims []models.SimCard
+	db.Offset(start).Limit(limit).Find(&sims)
+
+	// Check for pending tasks for these SIMs
+	var msisdns []string
+	for _, s := range sims {
+		msisdns = append(msisdns, s.MSISDN)
+	}
+
+	pendingTasks := make(map[string]string)
+	if len(msisdns) > 0 {
+		var tasks []models.SyncTask
+		// Check for tasks that are PENDING or PROCESSING
+		database.DB.Where("target_msisdn IN ? AND status IN ?", msisdns, []string{"PENDING", "PROCESSING"}).Find(&tasks)
+		for _, t := range tasks {
+			// We can map the specific type of task if needed
+			action := "QUEUED"
+			if t.Type == "CHANGE_STATUS" {
+				action = "Status Change Queued"
+			} else if t.Type == "UPDATE_SIM" {
+				action = "Update Queued"
+			}
+			pendingTasks[t.TargetMSISDN] = action
 		}
 	}
 
-	// Сортировка - расширяем поддерживаемые поля
-	allowedSortFields := map[string]bool{
-		"CLI": true, "MSISDN": true, "SIM_STATUS_CHANGE": true,
-		"CUSTOMER_LABEL_1": true, "LAST_SESSION_TIME": true,
-	}
-	if sortBy != "" && !allowedSortFields[sortBy] {
-		log.Printf("[GetSims] SORT: field '%s' not allowed, clearing", sortBy)
-		sortBy = ""
-	}
-
-	// Для локального поиска или фильтра по статусу загружаем больше данных
-	var fetchLimit = limit
-	var fetchStart = start
-	needLocalFilter := (searchQuery != "" && !useApiSearch) || statusFilter != ""
-	if needLocalFilter {
-		fetchLimit = 5000 // Загружаем больше для локальной фильтрации
-		fetchStart = 0    // Начинаем с 0 для полной фильтрации
-	}
-
-	log.Printf("[GetSims] CALLING API: fetchStart=%d, fetchLimit=%d, searchParams=%+v, sortBy='%s', sortDirection='%s'",
-		fetchStart, fetchLimit, searchParams, sortBy, sortDirection)
-
-	resp, err := eyesont.Instance.GetSims(fetchStart, fetchLimit, searchParams, sortBy, sortDirection)
-	if err != nil {
-		log.Printf("[GetSims] API ERROR: %v", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
-
-	log.Printf("[GetSims] API RESPONSE: count=%d, dataLen=%d", resp.Count, len(resp.Data))
-
-	// Фильтрация по статусу (если указан)
-	needStatusFilter := statusFilter != ""
-	needLocalSearch := searchQuery != "" && !useApiSearch
-
-	if needStatusFilter || needLocalSearch {
-		var filteredData []models.SimData
-		queryLower := strings.ToLower(searchQuery)
-
-		for _, sim := range resp.Data {
-			// Проверка статуса
-			if needStatusFilter && !strings.EqualFold(sim.SimStatusChange, statusFilter) {
-				continue
-			}
-
-			// Локальный поиск по всем полям
-			if needLocalSearch {
-				if !strings.Contains(strings.ToLower(sim.CLI), queryLower) &&
-					!strings.Contains(strings.ToLower(sim.MSISDN), queryLower) &&
-					!strings.Contains(strings.ToLower(sim.CustomerLabel1), queryLower) &&
-					!strings.Contains(strings.ToLower(sim.CustomerLabel2), queryLower) &&
-					!strings.Contains(strings.ToLower(sim.CustomerLabel3), queryLower) &&
-					!strings.Contains(strings.ToLower(sim.SimSwap), queryLower) &&
-					!strings.Contains(strings.ToLower(sim.IMSI), queryLower) &&
-					!strings.Contains(strings.ToLower(sim.IMEI), queryLower) &&
-					!strings.Contains(strings.ToLower(sim.SimStatusChange), queryLower) &&
-					!strings.Contains(strings.ToLower(sim.RatePlanFullName), queryLower) &&
-					!strings.Contains(strings.ToLower(sim.ApnName), queryLower) &&
-					!strings.Contains(strings.ToLower(sim.Ip1), queryLower) {
-					continue
-				}
-			}
-
-			filteredData = append(filteredData, sim)
+	// Map to API Response
+	var data []models.SimData
+	for _, s := range sims {
+		apiSim := mapModelToApi(s)
+		if status, exists := pendingTasks[s.MSISDN]; exists {
+			apiSim.SyncStatus = status
 		}
-
-		totalFiltered := len(filteredData)
-		log.Printf("[GetSims] LOCAL FILTER: found %d matches (status='%s', search='%s')", totalFiltered, statusFilter, searchQuery)
-
-		// Применяем пагинацию к отфильтрованным данным
-		if start < len(filteredData) {
-			end := start + limit
-			if end > len(filteredData) {
-				end = len(filteredData)
-			}
-			resp.Data = filteredData[start:end]
-		} else {
-			resp.Data = []models.SimData{}
-		}
-		resp.Count = totalFiltered
+		data = append(data, apiSim)
 	}
 
-	log.Printf("[GetSims] FINAL RESPONSE: count=%d, dataLen=%d", resp.Count, len(resp.Data))
+	// Response
+	resp := models.GetProvisioningDataResponse{
+		Count:      int(total),
+		Data:       data,
+		FieldNames: []string{"MSISDN", "CLI", "IMSI", "Status", "RatePlan"}, // Minimal set or full set
+	}
+	resp.Result = "succeeded" // emulate API success
 
 	return c.JSON(resp)
-}
-
-// isNumeric проверяет, состоит ли строка только из цифр
-func isNumeric(s string) bool {
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return false
-		}
-	}
-	return len(s) > 0
 }
 
 type UpdateSimRequest struct {
@@ -156,36 +162,40 @@ type UpdateSimRequest struct {
 func UpdateSim(c *fiber.Ctx) error {
 	var req UpdateSimRequest
 	if err := c.BodyParser(&req); err != nil {
-		log.Printf("[UpdateSim] PARSE ERROR: %v", err)
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})
 	}
 
-	reqJSON, _ := json.Marshal(req)
-	log.Printf("[UpdateSim] REQUEST: %s", string(reqJSON))
-
-	if req.Msisdn == "" || req.Field == "" {
-		log.Printf("[UpdateSim] ERROR: Missing fields")
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Missing fields"})
+	// Create Sync Task
+	payload, _ := json.Marshal(req)
+	task := models.SyncTask{
+		Type:         "UPDATE_SIM",
+		Payload:      string(payload),
+		Status:       "PENDING",
+		CreatedBy:    "admin", // TODO: Get from context
+		TargetMSISDN: req.Msisdn,
+		IPAddress:    c.IP(),
+		NextRunAt:    time.Now(),
 	}
 
-	resp, err := eyesont.Instance.BulkUpdate([]string{req.Msisdn}, req.Field, req.Value)
-	if err != nil {
-		log.Printf("[UpdateSim] API ERROR: %v", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	if err := database.DB.Create(&task).Error; err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Failed to queue task"})
 	}
 
-	log.Printf("[UpdateSim] SUCCESS: msisdn=%s, field=%s, value=%s", req.Msisdn, req.Field, req.Value)
-
+	// Create Audit Log
 	database.DB.Create(&models.ActivityLog{
 		Username:     "admin",
-		ActionType:   "update_field",
+		ActionType:   "queue_update_field",
 		TargetMSISDN: req.Msisdn,
 		OldValue:     req.Field,
 		NewValue:     req.Value,
-		Status:       "SUCCESS",
+		Status:       "QUEUED",
 	})
 
-	return c.JSON(resp)
+	return c.JSON(fiber.Map{
+		"result":  "queued",
+		"message": "Update queued for background processing",
+		"taskId":  task.ID,
+	})
 }
 
 type BulkStatusRequest struct {
@@ -194,15 +204,12 @@ type BulkStatusRequest struct {
 	Msisdns []string            `json:"msisdns"`
 }
 
+// Revised Bulk Change that creates individual tasks for tracking
 func BulkChangeStatus(c *fiber.Ctx) error {
 	var req BulkStatusRequest
 	if err := c.BodyParser(&req); err != nil {
-		log.Printf("[BulkChangeStatus] PARSE ERROR: %v", err)
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})
 	}
-
-	reqJSON, _ := json.Marshal(req)
-	log.Printf("[BulkChangeStatus] REQUEST: %s", string(reqJSON))
 
 	targetMsisdns := req.Msisdns
 	if len(req.Items) > 0 {
@@ -214,45 +221,101 @@ func BulkChangeStatus(c *fiber.Ctx) error {
 		}
 	}
 
-	log.Printf("[BulkChangeStatus] Target MSISDNs: %v, Status: %s", targetMsisdns, req.Status)
-
 	if len(targetMsisdns) == 0 {
-		log.Printf("[BulkChangeStatus] ERROR: No SIMs provided")
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "No SIMs provided"})
 	}
 
-	resp, err := eyesont.Instance.BulkUpdate(targetMsisdns, "SIM_STATE_CHANGE", req.Status)
-	if err != nil {
-		log.Printf("[BulkChangeStatus] API ERROR: %v", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
+	// Optimization: Create tasks in batch
+	var tasks []models.SyncTask
+	now := time.Now()
 
-	log.Printf("[BulkChangeStatus] SUCCESS: %d SIMs updated to status '%s'", len(targetMsisdns), req.Status)
-
-	// Сбрасываем кэш статистики после успешной смены статуса
-	InvalidateStatsCache()
-
-	username := "admin"
-
-	if len(req.Items) > 0 {
-		for _, item := range req.Items {
-			database.DB.Create(&models.ActivityLog{
-				Username:     username,
-				ActionType:   "change_status",
-				TargetMSISDN: item["msisdn"],
-				OldValue:     item["old_status"],
-				NewValue:     req.Status,
-				Status:       "SUCCESS",
-			})
+	for _, msisdn := range targetMsisdns {
+		payloadMap := map[string]interface{}{
+			"msisdns": []string{msisdn}, // Payload expects list for compatibility
+			"status":  req.Status,
 		}
-	} else {
-		database.DB.Create(&models.ActivityLog{
-			Username:   username,
-			ActionType: "bulk_change_status",
-			NewValue:   req.Status,
-			Status:     "SUCCESS",
+		payload, _ := json.Marshal(payloadMap)
+
+		tasks = append(tasks, models.SyncTask{
+			Type:         "CHANGE_STATUS",
+			Payload:      string(payload),
+			Status:       "PENDING",
+			CreatedBy:    "admin",
+			TargetMSISDN: msisdn,
+			IPAddress:    c.IP(),
+			NextRunAt:    now,
 		})
 	}
 
-	return c.JSON(resp)
+	if err := database.DB.Create(&tasks).Error; err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Failed to queue tasks"})
+	}
+
+	response := fiber.Map{
+		"result":  "queued",
+		"message": fmt.Sprintf("Queued %d status change tasks", len(tasks)),
+		"count":   len(tasks),
+	}
+
+	if len(tasks) == 1 {
+		response["requestId"] = tasks[0].ID
+		response["jobId"] = tasks[0].ID
+	} else if len(tasks) > 0 {
+		// If multiple, maybe return the first one or a list?
+		// For now, returning the first one allows tracking at least one.
+		// ideally we should return a list.
+		response["requestId"] = tasks[0].ID
+	}
+
+	return c.JSON(response)
+}
+
+func GetAPIStatus(c *fiber.Ctx) error {
+	status := "offline"
+	message := "Disconnected from EyesOnT API"
+
+	// Real-time check
+	if eyesont.Instance != nil {
+		if eyesont.Instance.CheckConnection() {
+			status = "online"
+			message = "Connected to EyesOnT API"
+		}
+	}
+
+	// Check DB
+	dbStatus := "offline"
+	if database.DB != nil {
+		sqlDB, err := database.DB.DB()
+		if err == nil && sqlDB.Ping() == nil {
+			dbStatus = "online"
+		}
+	}
+
+	return c.JSON(models.APIStatusResponse{
+		EyesonAPI: models.APIConnectionInfo{
+			Status: status,
+			Details: map[string]string{
+				"api_url":  eyesont.Instance.BaseURL,
+				"api_user": eyesont.Instance.Username,
+				"message":  message,
+			},
+		},
+		GoBackend:   models.APIConnectionInfo{Status: "online"},
+		Database:    models.APIConnectionInfo{Status: dbStatus},
+		LastChecked: time.Now().Format(time.RFC3339),
+	})
+}
+
+type ConnectionRequest struct {
+	Action string `json:"action"` // "connect", "disconnect", "set_mode"
+	Mode   string `json:"mode"`   // "NORMAL", "REFUSED", "DOWN"
+}
+
+// ToggleConnection - This endpoint is deprecated since simulator is now external
+// The simulator should be controlled via its own web interface at /web
+func ToggleConnection(c *fiber.Ctx) error {
+	return c.Status(fiber.StatusNotImplemented).JSON(fiber.Map{
+		"error":   "Simulator control moved to external simulator",
+		"message": "Use the external simulator's web interface at http://localhost:8888/web to control simulator modes",
+	})
 }

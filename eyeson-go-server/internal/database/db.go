@@ -22,7 +22,7 @@ func Connect(cfg *config.Config) {
 
 	log.Println("Database connection established")
 
-	err = DB.AutoMigrate(&models.User{}, &models.Role{}, &models.ActivityLog{})
+	err = DB.AutoMigrate(&models.User{}, &models.Role{}, &models.ActivityLog{}, &models.SimCard{}, &models.SyncTask{}, &models.SimHistory{})
 	if err != nil {
 		log.Fatalf("Migration failed: %v", err)
 	}
