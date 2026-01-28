@@ -1,3 +1,8 @@
+// Copyright (c) 2026 Alexander G.
+// Author: Alexander G. (Samsonix)
+// License: MIT
+// Project: EyesOn SIM Management System
+
 package jobs
 
 import (

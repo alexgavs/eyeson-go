@@ -1,5 +1,8 @@
 # EyesOn SIM Management System
 
+> **Copyright (c) 2026 Alexander G. (Samsonix)**  
+> **License: MIT**
+
 A full-stack SIM card management dashboard built with Go (Fiber) and React (TypeScript).
 
 ![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)
@@ -64,7 +67,7 @@ Edit `eyeson-go-server/.env` and set your Pelephone credentials, then run `build
                     └─────────────┘
 ```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed system design.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed system design.
 
 ---
 
@@ -161,7 +164,13 @@ go build -o eyeson-server.exe cmd/server/main.go
 
 ## 📄 License
 
-MIT License
+MIT License - see [LICENSE](LICENSE) for details.
+
+## 👤 Author
+
+**Alexander G. (Samsonix)**
+
+- GitHub: [@alexgavs](https://github.com/alexgavs)
 
 ---
 

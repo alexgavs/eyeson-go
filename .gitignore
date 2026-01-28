@@ -12,25 +12,50 @@
 .idea/
 .vscode/
 *.swp
+*.swo
 
 # Go
 eyeson-go-server/tmp/
 
 # Node
+node_modules/
 eyeson-gui/frontend/node_modules/
 eyeson-gui/frontend/dist/
 
 # Wails build output
 eyeson-gui/build/
 
-# Environment
+# Environment & Secrets (NEVER COMMIT!)
 .env
+.env.*
+*.env
 .env.local
 .env.production
+*.pem
+*.key
+secrets/
+credentials/
 
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
 # Logs
 *.log
+logs/
+
+# Build artifacts
+dist/
+build/
+out/
+
+# Test files
+*.test
+coverage/
+.coverage
+
+# Temporary files
+tmp/
+temp/
+*.tmp

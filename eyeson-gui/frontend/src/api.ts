@@ -1,3 +1,10 @@
+/**
+ * Copyright (c) 2026 Alexander G.
+ * Author: Alexander G. (Samsonix)
+ * License: MIT
+ * Project: EyesOn SIM Management System
+ */
+
 // API Service replacement for Wails bindings
 
 const BASE_URL = "/api/v1";

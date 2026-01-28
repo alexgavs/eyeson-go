@@ -1,3 +1,10 @@
+/**
+ * Copyright (c) 2026 Alexander G.
+ * Author: Alexander G. (Samsonix)
+ * License: MIT
+ * Project: EyesOn SIM Management System
+ */
+
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Login, GetSims, GetStats, UpdateSim, ChangeStatus, GetJobStatus, GetJobs, GetUsers, CreateUser, UpdateUser, DeleteUser, ResetUserPassword, GetRoles, GetAPIStatus, GetSyncQueue, ToggleAPIConnection, ExecuteQueueTask, GetSimHistory, QueueTask, APIStatusResponse, User, Role, SimHistory } from './api';
 
