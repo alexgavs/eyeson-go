@@ -14,7 +14,6 @@ import (
 	"eyeson-go-server/internal/services"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/golang-jwt/jwt/v5"
 )
 
 // ═══════════════════════════════════════════════════════════
@@ -57,12 +56,10 @@ func GetTaskByRequestID(c *fiber.Ctx) error {
 // GetMyQueue - получить очередь текущего пользователя
 // GET /api/v1/queue/my
 func GetMyQueue(c *fiber.Ctx) error {
-	claims, ok := c.Locals("user").(jwt.MapClaims)
+	userID, ok := c.Locals("user_id").(uint)
 	if !ok {
 		return c.Status(401).JSON(fiber.Map{"error": "Unauthorized"})
 	}
-
-	userID := uint(claims["user_id"].(float64))
 
 	// По умолчанию показываем активные задачи
 	tasks, err := services.Queue.GetUserTasks(userID, []models.TaskStatus{
@@ -82,12 +79,10 @@ func GetMyQueue(c *fiber.Ctx) error {
 // GetMyQueueHistory - получить историю задач текущего пользователя
 // GET /api/v1/queue/my/history
 func GetMyQueueHistory(c *fiber.Ctx) error {
-	claims, ok := c.Locals("user").(jwt.MapClaims)
+	userID, ok := c.Locals("user_id").(uint)
 	if !ok {
 		return c.Status(401).JSON(fiber.Map{"error": "Unauthorized"})
 	}
-
-	userID := uint(claims["user_id"].(float64))
 
 	// Все задачи включая завершённые
 	tasks, err := services.Queue.GetUserTasks(userID, nil)
@@ -150,12 +145,10 @@ func CancelTask(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "Invalid task ID"})
 	}
 
-	claims, ok := c.Locals("user").(jwt.MapClaims)
+	userID, ok := c.Locals("user_id").(uint)
 	if !ok {
 		return c.Status(401).JSON(fiber.Map{"error": "Unauthorized"})
 	}
-
-	userID := uint(claims["user_id"].(float64))
 
 	// Получаем задачу для логирования
 	task, err := services.Queue.GetTaskByID(uint(taskID))

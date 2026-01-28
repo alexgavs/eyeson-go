@@ -91,9 +91,9 @@ func (w *Worker) processTask(task models.SyncTask) {
 	var result string
 
 	switch task.Type {
-	case "UPDATE_SIM":
+	case "UPDATE_SIM", "LABEL_UPDATE":
 		result, err = w.handleUpdateSim(task)
-	case "CHANGE_STATUS":
+	case "CHANGE_STATUS", "STATUS_CHANGE", "BULK_CHANGE":
 		result, err = w.handleChangeStatus(task)
 	default:
 		err = fmt.Errorf("unknown task type: %s", task.Type)

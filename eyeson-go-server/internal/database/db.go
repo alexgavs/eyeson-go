@@ -71,11 +71,11 @@ func createAuditIndexes() {
 	// Index for session tracking
 	DB.Exec(`CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_logs(session_id)`)
 
-	// Indexes for sync_task_extended table
-	DB.Exec(`CREATE INDEX IF NOT EXISTS idx_queue_status_priority ON sync_task_extended(status, priority DESC)`)
-	DB.Exec(`CREATE INDEX IF NOT EXISTS idx_queue_user ON sync_task_extended(user_id, created_at DESC)`)
-	DB.Exec(`CREATE INDEX IF NOT EXISTS idx_queue_batch ON sync_task_extended(batch_id)`)
-	DB.Exec(`CREATE INDEX IF NOT EXISTS idx_queue_request ON sync_task_extended(request_id)`)
+	// Indexes for sync_tasks table (used by SyncTaskExtended)
+	DB.Exec(`CREATE INDEX IF NOT EXISTS idx_queue_status_priority ON sync_tasks(status, priority DESC)`)
+	DB.Exec(`CREATE INDEX IF NOT EXISTS idx_queue_user ON sync_tasks(user_id, created_at DESC)`)
+	DB.Exec(`CREATE INDEX IF NOT EXISTS idx_queue_batch ON sync_tasks(batch_id)`)
+	DB.Exec(`CREATE INDEX IF NOT EXISTS idx_queue_request ON sync_tasks(request_id)`)
 
 	log.Println("Audit and queue indexes created/verified")
 }
