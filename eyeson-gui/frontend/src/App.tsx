@@ -94,6 +94,7 @@ function App() {
   const [jobsPerPage, setJobsPerPage] = useState(25); // Записей на страницу
   const [jobFilters, setJobFilters] = useState({ jobId: '', status: '' });
   const [jobsLoaded, setJobsLoaded] = useState(false); // Загружены ли данные
+  const [selectedJob, setSelectedJob] = useState<any>(null); // For Job Details Modal
   
   // User Management
   const [users, setUsers] = useState<User[]>([]);
@@ -1719,10 +1720,7 @@ function App() {
                           <td>
                             <button 
                               className="btn btn-outline-info btn-sm py-0 px-1"
-                              onClick={() => {
-                                const details = JSON.stringify(job, null, 2);
-                                alert(`Job #${job.jobId} Details:\n\n${details}`);
-                              }}
+                              onClick={() => setSelectedJob(job)}
                               title="View full job details"
                             >
                               👁 {actions.length > 1 ? `(${actions.length})` : 'View'}
@@ -1800,6 +1798,98 @@ function App() {
               </div>
             )}
           </div>
+
+          {/* Job Details Modal */}
+          {selectedJob && (
+            <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} onClick={() => setSelectedJob(null)}>
+              <div className="modal-dialog modal-lg modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-content bg-dark text-white">
+                  <div className="modal-header border-secondary">
+                    <h5 className="modal-title">
+                      📋 Job #{selectedJob.jobId} Details
+                    </h5>
+                    <button type="button" className="btn-close btn-close-white" onClick={() => setSelectedJob(null)}></button>
+                  </div>
+                  <div className="modal-body">
+                    {/* Job Summary */}
+                    <div className="row mb-3">
+                      <div className="col-6">
+                        <small className="text-muted">Created</small>
+                        <div>{formatDate(selectedJob.requestTime)}</div>
+                      </div>
+                      <div className="col-6">
+                        <small className="text-muted">Last Updated</small>
+                        <div>{formatDate(selectedJob.lastActionTime)}</div>
+                      </div>
+                    </div>
+
+                    {/* Actions List */}
+                    <h6 className="text-info mb-2">Actions ({(selectedJob.actions || []).length})</h6>
+                    <div className="table-responsive">
+                      <table className="table table-dark table-sm table-bordered mb-0">
+                        <thead>
+                          <tr>
+                            <th>#</th>
+                            <th>Type</th>
+                            <th>Target</th>
+                            <th>Status</th>
+                            <th>Message</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(selectedJob.actions || []).map((action: any, idx: number) => (
+                            <tr key={idx}>
+                              <td className="text-muted">{idx + 1}</td>
+                              <td>
+                                <code className="text-warning">{(action.requestType || '-').replace(/_/g, ' ')}</code>
+                              </td>
+                              <td>
+                                <code className="text-info">{action.targetValue || '-'}</code>
+                                {action.initialValue && (
+                                  <small className="text-muted d-block">from: {action.initialValue}</small>
+                                )}
+                              </td>
+                              <td>
+                                <span className={`badge ${
+                                  action.status === 'SUCCESS' ? 'bg-success' : 
+                                  action.status === 'FAILED' ? 'bg-danger' : 
+                                  action.status === 'IN_PROGRESS' ? 'bg-warning' : 'bg-secondary'
+                                }`}>
+                                  {action.status || 'UNKNOWN'}
+                                </span>
+                              </td>
+                              <td>
+                                {action.errorDesc && action.errorDesc !== 'Success' ? (
+                                  <small className={action.status === 'FAILED' ? 'text-danger' : 'text-muted'}>
+                                    {action.errorDesc}
+                                  </small>
+                                ) : (
+                                  <small className="text-muted">-</small>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Raw JSON Toggle */}
+                    <details className="mt-3">
+                      <summary className="text-muted cursor-pointer" style={{ cursor: 'pointer' }}>
+                        📄 Raw JSON
+                      </summary>
+                      <pre className="bg-black p-2 rounded mt-2 small" style={{ maxHeight: '200px', overflow: 'auto' }}>
+                        {JSON.stringify(selectedJob, null, 2)}
+                      </pre>
+                    </details>
+                  </div>
+                  <div className="modal-footer border-secondary">
+                    <button className="btn btn-secondary" onClick={() => setSelectedJob(null)}>Close</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
