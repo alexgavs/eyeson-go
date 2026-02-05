@@ -291,7 +291,8 @@ type BulkStatusResponse struct {
 	Result string `json:"result,omitempty"`
 	Queued bool   `json:"queued,omitempty"`
 	// Local SyncTask ID for polling (/jobs/local/:id). Optional.
-	RequestID uint `json:"requestId,omitempty"`
+	RequestID uint   `json:"requestId,omitempty"`
+	TaskIDs   []uint `json:"task_ids,omitempty"` // For batch operations
 
 	Success     bool   `json:"success"`
 	BatchID     string `json:"batch_id"`
@@ -368,12 +369,13 @@ func BulkChangeStatus(c *fiber.Ctx) error {
 		}
 
 		// Логируем постановку в очередь
-		services.Audit.LogStatusChangeQueued(c, item.CLI, item.MSISDN, item.OldStatus, req.Status, task.ID, nil)
+		services.Audit.LogStatusChangeQueued(c, item.MSISDN, item.OldStatus, req.Status, "Bulk Change")
 
 		return c.JSON(BulkStatusResponse{
 			Result:      "queued",
 			Queued:      true,
 			RequestID:   task.ID,
+			TaskIDs:     []uint{task.ID},
 			Success:     true,
 			BatchID:     batchID,
 			TotalItems:  1,
@@ -407,15 +409,11 @@ func BulkChangeStatus(c *fiber.Ctx) error {
 	}
 
 	// Логируем batch в аудит
-	itemMaps := make([]map[string]string, 0, len(items))
-	for _, item := range items {
-		itemMaps = append(itemMaps, map[string]string{
-			"cli":        item.CLI,
-			"msisdn":     item.MSISDN,
-			"old_status": item.OldStatus,
-		})
+	msisdns := make([]string, len(items))
+	for i, item := range items {
+		msisdns[i] = item.MSISDN
 	}
-	services.Audit.LogBulkStatusChange(c, batchID, itemMaps, req.Status, 0, 0, nil)
+	services.Audit.LogBulkStatusChange(c, len(items), req.Status, msisdns)
 
 	log.Printf("[BulkChangeStatus] Created %d tasks in batch %s", len(taskIDs), batchID)
 
@@ -424,6 +422,7 @@ func BulkChangeStatus(c *fiber.Ctx) error {
 		Queued:      true,
 		Success:     true,
 		BatchID:     batchID,
+		TaskIDs:     taskIDs,
 		TotalItems:  len(items),
 		DirectCount: 0,
 		QueuedCount: len(items),
@@ -494,7 +493,7 @@ func ChangeStatus(c *fiber.Ctx) error {
 	}
 
 	// Логируем постановку в очередь
-	services.Audit.LogStatusChangeQueued(c, req.CLI, req.MSISDN, req.OldStatus, req.NewStatus, task.ID, nil)
+	services.Audit.LogStatusChangeQueued(c, req.MSISDN, req.OldStatus, req.NewStatus, "Single Change")
 
 	return c.JSON(ChangeStatusResponse{
 		Success:   true,

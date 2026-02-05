@@ -8,6 +8,7 @@ package jobs
 import (
 	"encoding/json"
 	"eyeson-go-server/internal/eyesont"
+	"eyeson-go-server/internal/handlers"
 	"eyeson-go-server/internal/models"
 	"eyeson-go-server/internal/services"
 	"fmt"
@@ -38,6 +39,10 @@ func (w *Worker) IsPaused() bool {
 
 func (w *Worker) Start() {
 	log.Println("[JobWorker] Starting background job worker...")
+
+	// Clean up stale tasks on startup
+	w.cleanupStaleTasks()
+
 	go func() {
 		ticker := time.NewTicker(1 * time.Second) // Check every 1 second for responsiveness
 		for range ticker.C {
@@ -47,6 +52,38 @@ func (w *Worker) Start() {
 			w.ProcessPendingTasks()
 		}
 	}()
+}
+
+// cleanupStaleTasks marks tasks that exceeded max attempts as FAILED
+func (w *Worker) cleanupStaleTasks() {
+	// Mark tasks stuck in PROCESSING as PENDING (server restart recovery)
+	result := w.DB.Model(&models.SyncTaskExtended{}).
+		Where("status = ?", "PROCESSING").
+		Updates(map[string]interface{}{
+			"status":     "PENDING",
+			"updated_at": time.Now(),
+		})
+	if result.RowsAffected > 0 {
+		log.Printf("[JobWorker] Recovered %d stuck PROCESSING tasks", result.RowsAffected)
+	}
+
+	// Mark tasks that exceeded attempts as FAILED
+	// Default MaxAttempts = 3 if not set
+	result = w.DB.Model(&models.SyncTaskExtended{}).
+		Where("status = ? AND attempt >= CASE WHEN max_attempts = 0 THEN 3 ELSE max_attempts END", "PENDING").
+		Updates(map[string]interface{}{
+			"status":     "FAILED",
+			"result":     "Max attempts exceeded (cleanup)",
+			"updated_at": time.Now(),
+		})
+	if result.RowsAffected > 0 {
+		log.Printf("[JobWorker] Marked %d stale tasks as FAILED (exceeded max attempts)", result.RowsAffected)
+	}
+
+	// Set max_attempts=3 for tasks where it's 0
+	w.DB.Model(&models.SyncTaskExtended{}).
+		Where("max_attempts = 0 OR max_attempts IS NULL").
+		Update("max_attempts", 3)
 }
 
 func (w *Worker) ProcessPendingTasks() {
@@ -64,7 +101,25 @@ func (w *Worker) ProcessPendingTasks() {
 }
 
 func (w *Worker) processTask(task models.SyncTaskExtended) {
-	log.Printf("[JobWorker] Processing task ID=%d Type=%s Target=%s", task.ID, task.Type, task.TargetMSISDN)
+	log.Printf("[JobWorker] Processing task ID=%d Type=%s Target=%s Attempt=%d/%d", task.ID, task.Type, task.TargetMSISDN, task.Attempt, task.MaxAttempts)
+
+	// Ensure MaxAttempts is set (default 3 if not configured)
+	if task.MaxAttempts == 0 {
+		task.MaxAttempts = 3
+		w.DB.Model(&task).Update("max_attempts", 3)
+	}
+
+	// Check if already exceeded max attempts - mark as FAILED immediately
+	if task.Attempt >= task.MaxAttempts {
+		log.Printf("[JobWorker] Task ID=%d exceeded max attempts (%d/%d) - marking as FAILED", task.ID, task.Attempt, task.MaxAttempts)
+		w.DB.Model(&task).Updates(map[string]interface{}{
+			"status":     "FAILED",
+			"result":     fmt.Sprintf("Max attempts exceeded (%d/%d)", task.Attempt, task.MaxAttempts),
+			"updated_at": time.Now(),
+		})
+		services.Audit.LogQueueFailed(task.ID, task.TargetMSISDN, "Max attempts exceeded", 0)
+		return
+	}
 
 	startTime := time.Now()
 
@@ -112,6 +167,7 @@ func (w *Worker) processTask(task models.SyncTaskExtended) {
 			strings.Contains(errMsg, "targetId is mandatory") ||
 			strings.Contains(errMsg, "Invalid actionType") ||
 			strings.Contains(errMsg, "Invalid targetId") ||
+			strings.Contains(errMsg, "System Error") || // Pelephone system error - won't resolve with retries
 			(strings.Contains(errMsg, "FAILED") && strings.Contains(errMsg, "target_value")) ||
 			(strings.Contains(errMsg, "FAILED") && strings.Contains(errMsg, "mandatory"))
 
@@ -162,6 +218,11 @@ func (w *Worker) processTask(task models.SyncTaskExtended) {
 		log.Printf("[JobWorker] Task ID=%d COMPLETED", task.ID)
 		// Log completion to audit
 		services.Audit.LogQueueCompleted(task.ID, task.TargetMSISDN, result, durationMs)
+
+		// Invalidate stats cache on successful status/label change
+		if task.Type == "CHANGE_STATUS" || task.Type == "STATUS_CHANGE" || task.Type == "BULK_CHANGE" {
+			handlers.InvalidateStatsCache()
+		}
 	}
 
 	w.DB.Model(&task).Updates(map[string]interface{}{
@@ -202,7 +263,7 @@ func (w *Worker) handleUpdateSim(task models.SyncTaskExtended) (string, error) {
 		}
 		field = task.LabelField
 		value = task.LabelValue
-		
+
 		// Нормализуем поле (CUSTOMER_LABEL_1 -> label_1)
 		switch field {
 		case "CUSTOMER_LABEL_1":
@@ -212,7 +273,7 @@ func (w *Worker) handleUpdateSim(task models.SyncTaskExtended) (string, error) {
 		case "CUSTOMER_LABEL_3":
 			field = "label_3"
 		}
-		
+
 		log.Printf("[Worker] LABEL_UPDATE: msisdn=%s, field=%s, value=%s", msisdn, field, value)
 	} else {
 		// Fallback для UPDATE_SIM - парсим из Payload
@@ -268,8 +329,12 @@ func (w *Worker) handleUpdateSim(task models.SyncTaskExtended) (string, error) {
 		TaskID:   &task.ID,
 	})
 
-	// Sync updated SIM from API to ensure consistency
-	w.syncSimsFromAPI([]string{msisdn})
+	// НЕ синхронизируем с API сразу - Pelephone имеет eventual consistency
+	// Запланируем отложенную синхронизацию через 5 секунд
+	go func(m string) {
+		time.Sleep(5 * time.Second)
+		w.syncSimsFromAPI([]string{m})
+	}(msisdn)
 
 	return "Update successful", nil
 }
@@ -310,8 +375,17 @@ func (w *Worker) handleChangeStatus(task models.SyncTaskExtended) (string, error
 	// Update local DB for immediate UI feedback
 	w.DB.Model(&models.SimCard{}).Where("msisdn IN ?", p.Msisdns).Update("status", p.Status)
 
-	// Sync updated data from API to ensure consistency
-	w.syncSimsFromAPI(p.Msisdns)
+	// НЕ синхронизируем с API сразу - Pelephone имеет eventual consistency
+	// API вернёт старый статус в течение 2-5 секунд после обновления
+	// Синхронизация произойдёт при следующем полном sync цикле
+	// w.syncSimsFromAPI(p.Msisdns)
+
+	// Запланируем отложенную синхронизацию через 5 секунд
+	go func(msisdns []string) {
+		time.Sleep(5 * time.Second)
+		w.syncSimsFromAPI(msisdns)
+		handlers.InvalidateStatsCache()
+	}(p.Msisdns)
 
 	// Create history records for each SIM
 	for _, msisdn := range p.Msisdns {

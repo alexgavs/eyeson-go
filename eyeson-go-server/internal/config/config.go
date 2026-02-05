@@ -32,6 +32,12 @@ type Config struct {
 
 	SeedDefaultAdmin     bool
 	DefaultAdminPassword string
+
+	// Google OAuth
+	GoogleClientID     string
+	GoogleClientSecret string
+	GoogleRedirectURL  string
+	GoogleEnabled      bool
 }
 
 func LoadConfig() (*Config, error) {
@@ -64,6 +70,12 @@ func LoadConfig() (*Config, error) {
 
 		SeedDefaultAdmin:     getEnvBool("EYESON_SEED_DEFAULT_ADMIN", appEnv == "dev"),
 		DefaultAdminPassword: getEnv("EYESON_DEFAULT_ADMIN_PASSWORD", "admin"),
+
+		// Google OAuth
+		GoogleClientID:     getEnv("GOOGLE_CLIENT_ID", ""),
+		GoogleClientSecret: getEnv("GOOGLE_CLIENT_SECRET", ""),
+		GoogleRedirectURL:  getEnv("GOOGLE_REDIRECT_URL", "http://localhost:5000/api/v1/auth/google/callback"),
+		GoogleEnabled:      getEnvBool("GOOGLE_OAUTH_ENABLED", false),
 	}
 
 	if err := cfg.Validate(); err != nil {

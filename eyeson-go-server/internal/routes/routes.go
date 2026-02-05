@@ -35,16 +35,29 @@ func SetupRoutes(app *fiber.App, cfg *config.Config) {
 	}))
 	app.Use(logger.New())
 
+	// Initialize Google OAuth
+	handlers.InitGoogleOAuth(cfg)
+
 	// API routes
 	api := app.Group("/api/v1")
 
 	// Auth routes (public)
 	api.Post("/auth/login", handlers.Login)
 
+	// Google OAuth routes (public)
+	api.Get("/auth/google/config", handlers.GetGoogleOAuthConfig)
+	api.Get("/auth/google/login", handlers.GoogleLogin)
+	api.Get("/auth/google/callback", handlers.GoogleCallback)
+
 	// Auth routes (protected)
 	authProtected := api.Group("/auth")
 	authProtected.Use(handlers.JWTMiddleware)
 	authProtected.Put("/change-password", handlers.ChangePassword)
+	// Google account management
+	authProtected.Get("/google/status", handlers.GetUserGoogleStatus)
+	authProtected.Post("/google/link", handlers.LinkGoogleAccount)
+	authProtected.Delete("/google/unlink", handlers.UnlinkGoogleAccount)
+	authProtected.Get("/google/link/callback", handlers.GoogleLinkCallback) // Moved here to be behind JWT middleware
 
 	// User management routes (protected - Admin only)
 	users := api.Group("/users")
@@ -100,12 +113,14 @@ func SetupRoutes(app *fiber.App, cfg *config.Config) {
 	upstream.Get("", handlers.GetUpstream)
 	upstream.Put("", handlers.SetUpstream)
 
-	// Manual sync (Admin only) - pulls latest data from Pelephone into local DB
-	sync := api.Group("/sync")
-	sync.Use(handlers.JWTMiddleware)
-	sync.Use(handlers.RequireRole("Administrator"))
-	sync.Get("/status", handlers.GetManualSyncStatus)
-	sync.Post("/full", handlers.TriggerManualFullSync)
+	// Sync status - available to all authenticated users
+	api.Get("/sync/status", handlers.JWTMiddleware, handlers.GetManualSyncStatus)
+
+	// Manual sync trigger (Admin only) - pulls latest data from Pelephone into local DB
+	syncAdmin := api.Group("/sync")
+	syncAdmin.Use(handlers.JWTMiddleware)
+	syncAdmin.Use(handlers.RequireRole("Administrator"))
+	syncAdmin.Post("/full", handlers.TriggerManualFullSync)
 
 	// Jobs routes (protected - All roles)
 	jobs := api.Group("/jobs")

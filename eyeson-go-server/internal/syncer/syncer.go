@@ -213,6 +213,20 @@ func (s *Syncer) processBatch(sims []models.SimData) error {
 				changesFound = true
 			}
 
+			// Compare Labels
+			if newSim.Label1 != existing.Label1 {
+				changesFound = true
+				histories = append(histories, createHistory(existing, "LABEL_1", existing.Label1, newSim.Label1))
+			}
+			if newSim.Label2 != existing.Label2 {
+				changesFound = true
+				histories = append(histories, createHistory(existing, "LABEL_2", existing.Label2, newSim.Label2))
+			}
+			if newSim.Label3 != existing.Label3 {
+				changesFound = true
+				histories = append(histories, createHistory(existing, "LABEL_3", existing.Label3, newSim.Label3))
+			}
+
 			if changesFound {
 				toUpdate = append(toUpdate, newSim)
 			}

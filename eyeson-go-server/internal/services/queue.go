@@ -146,6 +146,29 @@ func (s *QueueService) CreateBatch(items []CreateTaskRequest) (string, []uint, e
 			req.Priority = models.PriorityHigh
 		}
 
+		// Создаём payload для worker
+		payload := map[string]interface{}{
+			"type": req.Type,
+		}
+		if req.Type == models.TaskTypeStatusChange || req.Type == models.TaskTypeBulkChange {
+			id := req.MSISDN
+			if id == "" {
+				id = req.CLI
+			}
+			payload["msisdns"] = []string{id}
+			payload["status"] = req.NewStatus
+			payload["old_status"] = req.OldStatus
+			payload["new_status"] = req.NewStatus
+			payload["cli"] = req.CLI
+			payload["msisdn"] = req.MSISDN
+		} else {
+			payload["msisdn"] = req.MSISDN
+			payload["cli"] = req.CLI
+			payload["old_status"] = req.OldStatus
+			payload["new_status"] = req.NewStatus
+		}
+		payloadJSON, _ := json.Marshal(payload)
+
 		task := &models.SyncTaskExtended{
 			Type:         req.Type,
 			Priority:     req.Priority,
@@ -154,6 +177,7 @@ func (s *QueueService) CreateBatch(items []CreateTaskRequest) (string, []uint, e
 			TargetCLI:    req.CLI,
 			OldStatus:    req.OldStatus,
 			NewStatus:    req.NewStatus,
+			Payload:      string(payloadJSON),
 			UserID:       &req.UserID,
 			Username:     req.Username,
 			IPAddress:    req.IPAddress,

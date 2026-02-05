@@ -27,6 +27,9 @@ type User struct {
 	Role         Role      `json:"role"`
 	LastSeen     time.Time `json:"last_seen"`
 	IsActive     bool      `gorm:"default:true" json:"is_active"`
+	// Google OAuth
+	GoogleID  string `gorm:"index" json:"google_id,omitempty"`
+	AvatarURL string `json:"avatar_url,omitempty"`
 }
 
 type ActivityLog struct {

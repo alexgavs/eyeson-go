@@ -102,7 +102,7 @@ type GetJobsRequest struct {
 }
 
 type JobAction struct {
-	NeId         string `json:"neId,omitempty"`         // SIM identifier (CLI or MSISDN)
+	NeId         string `json:"neId,omitempty"` // SIM identifier (CLI or MSISDN)
 	RequestType  string `json:"requestType"`
 	InitialValue string `json:"initialValue,omitempty"` // Value before change
 	TargetValue  string `json:"targetValue"`

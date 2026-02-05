@@ -36,6 +36,7 @@ const (
 	ActionDelete        AuditAction = "DELETE"
 	ActionStatusChange  AuditAction = "STATUS_CHANGE"
 	ActionBulkChange    AuditAction = "BULK_CHANGE"
+	ActionGoogleLink    AuditAction = "GOOGLE_LINK"
 	ActionLogin         AuditAction = "LOGIN"
 	ActionLogout        AuditAction = "LOGOUT"
 	ActionLoginFailed   AuditAction = "LOGIN_FAILED"
@@ -96,12 +97,15 @@ type AuditLog struct {
 	NewValue  string `gorm:"type:text" json:"new_value,omitempty"`  // Новое значение
 	ChangeSet string `gorm:"type:text" json:"change_set,omitempty"` // JSON для bulk операций
 
+	// ─── ДЕТАЛИ ──────────────────────────────────
+	Details string `gorm:"type:text" json:"details,omitempty"` // Дополнительные детали
+
 	// ─── КОНТЕКСТ ──────────────────────────────────────────
-	Source      AuditSource `gorm:"index;size:20" json:"source"`              // WEB, API, SYNC, WORKER
-	TaskID      *uint       `gorm:"index" json:"task_id,omitempty"`           // FK на SyncTask
-	BatchID     string      `gorm:"index;size:36" json:"batch_id,omitempty"`  // UUID группы операций
+	Source      AuditSource `gorm:"index;size:20" json:"source"`               // WEB, API, SYNC, WORKER
+	TaskID      *uint       `gorm:"index" json:"task_id,omitempty"`            // FK на SyncTask
+	BatchID     string      `gorm:"index;size:36" json:"batch_id,omitempty"`   // UUID группы операций
 	SessionID   string      `gorm:"index;size:64" json:"session_id,omitempty"` // JWT session
-	RequestPath string      `gorm:"size:200" json:"request_path,omitempty"`   // /api/v1/sims/bulk
+	RequestPath string      `gorm:"size:200" json:"request_path,omitempty"`    // /api/v1/sims/bulk
 
 	// ─── РЕЗУЛЬТАТ ─────────────────────────────────────────
 	Status       AuditStatus `gorm:"index;size:20" json:"status"`

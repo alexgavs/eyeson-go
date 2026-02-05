@@ -99,12 +99,59 @@ func (s *AuditService) NewLog(c *fiber.Ctx) *LogBuilder {
 func (s *AuditService) NewWorkerLog() *LogBuilder {
 	return &LogBuilder{
 		log: &models.AuditLog{
-			Username:  "worker",
 			Source:    models.SourceWorker,
 			Status:    models.AuditStatusSuccess,
 			CreatedAt: time.Now(),
 		},
 	}
+}
+
+// SetUserID устанавливает UserID
+func (b *LogBuilder) SetUserID(userID uint) *LogBuilder {
+	b.log.UserID = &userID
+	return b
+}
+
+// SetAction устанавливает Action
+func (b *LogBuilder) SetAction(action models.AuditAction) *LogBuilder {
+	b.log.Action = action
+	return b
+}
+
+// SetEntityType устанавливает EntityType
+func (b *LogBuilder) SetEntityType(entityType models.EntityType) *LogBuilder {
+	b.log.EntityType = entityType
+	return b
+}
+
+// SetEntityID устанавливает EntityID
+func (b *LogBuilder) SetEntityID(entityID string) *LogBuilder {
+	b.log.EntityID = entityID
+	return b
+}
+
+// SetStatus устанавливает Status
+func (b *LogBuilder) SetStatus(status models.AuditStatus) *LogBuilder {
+	b.log.Status = status
+	return b
+}
+
+// SetDetails устанавливает Details
+func (b *LogBuilder) SetDetails(details string) *LogBuilder {
+	b.log.Details = details
+	return b
+}
+
+// Save сохраняет лог в базу данных
+func (b *LogBuilder) Save() {
+	if err := database.DB.Create(b.log).Error; err != nil {
+		log.Printf("!!! FAILED TO SAVE AUDIT LOG: %v", err)
+	}
+}
+
+// SaveAsync сохраняет лог асинхронно
+func (b *LogBuilder) SaveAsync() {
+	go b.Save()
 }
 
 // ─── BUILDER METHODS ───────────────────────────────────────
@@ -183,97 +230,20 @@ func (b *LogBuilder) WithError(errMsg string) *LogBuilder {
 	return b
 }
 
-// Save сохраняет запись в БД синхронно
-func (b *LogBuilder) Save() error {
-	return database.DB.Create(b.log).Error
-}
+// ─── HELPER METHODS ────────────────────────────────────────
 
-// SaveAsync сохраняет запись асинхронно (fire-and-forget)
-func (b *LogBuilder) SaveAsync() {
-	go func() {
-		if err := b.Save(); err != nil {
-			log.Printf("[Audit] Failed to save log: %v", err)
-		}
-	}()
-}
-
-// ─── БЫСТРЫЕ МЕТОДЫ ЛОГИРОВАНИЯ ────────────────────────────
-
-
-// LogStatusChangeQueued - логирует постановку изменения статуса в очередь
-func (s *AuditService) LogStatusChangeQueued(c *fiber.Ctx, cli, msisdn, oldStatus, newStatus string, taskID uint, reason error) {
-	builder := s.NewLog(c).
-		Entity(models.EntitySIM, msisdn).
-		Action(models.ActionQueueAdd).
-		Change("status", oldStatus, newStatus).
-		Task(taskID).
-		Queued()
-
-	if reason != nil {
-		builder.WithError(fmt.Sprintf("Queued due to: %s", reason.Error()))
-	}
-
-	builder.SaveAsync()
-}
-
-// LogBulkStatusChange - логирует массовое изменение статуса
-func (s *AuditService) LogBulkStatusChange(c *fiber.Ctx, batchID string, items []map[string]string, newStatus string, providerReqID int, responseMs int64, err error) {
-	// Создаём changeset
-	changes := make([]map[string]string, 0, len(items))
-	for _, item := range items {
-		changes = append(changes, map[string]string{
-			"cli":        item["cli"],
-			"msisdn":     item["msisdn"],
-			"old_status": item["old_status"],
-			"new_status": newStatus,
-		})
-	}
-
-	builder := s.NewLog(c).
-		Entity(models.EntitySIM, fmt.Sprintf("batch:%d", len(items))).
-		Action(models.ActionBulkChange).
-		ChangeSet(changes).
-		Batch(batchID).
-		Provider(providerReqID, responseMs)
-
-	if err != nil {
-		builder.Failed(err)
-	}
-
-	builder.SaveAsync()
-}
-
-// LogLogin - логирует вход пользователя
-func (s *AuditService) LogLogin(c *fiber.Ctx, userID uint, username, role string, success bool, errMsg string) {
-	action := models.ActionLogin
+// LogLogin - логирование входа
+func (s *AuditService) LogLogin(c *fiber.Ctx, userID uint, username, role string, success bool, method string) {
+	auditLog := s.NewLog(c)
+	status := models.AuditStatusSuccess
 	if !success {
-		action = models.ActionLoginFailed
+		status = models.AuditStatusFailed
 	}
-
-	builder := &LogBuilder{
-		log: &models.AuditLog{
-			UserID:      &userID,
-			Username:    username,
-			UserRole:    role,
-			IPAddress:   c.IP(),
-			UserAgent:   c.Get("User-Agent"),
-			RequestPath: c.Path(),
-			EntityType:  models.EntitySession,
-			EntityID:    username,
-			Action:      action,
-			Source:      models.SourceWeb,
-			CreatedAt:   time.Now(),
-		},
-	}
-
-	if success {
-		builder.log.Status = models.AuditStatusSuccess
-	} else {
-		builder.log.Status = models.AuditStatusFailed
-		builder.log.ErrorMessage = errMsg
-	}
-
-	builder.SaveAsync()
+	auditLog.SetAction(models.ActionLogin).
+		SetStatus(status).
+		SetEntityType(models.EntitySession).
+		SetDetails(fmt.Sprintf("Login via %s. Success: %v", method, success))
+	auditLog.SaveAsync()
 }
 
 // LogQueueCompleted - логирует успешное выполнение задачи из очереди
@@ -316,25 +286,27 @@ func (s *AuditService) LogQueueCancel(c *fiber.Ctx, task *models.SyncTaskExtende
 		SaveAsync()
 }
 
-// LogUserCreate - логирует создание пользователя
-func (s *AuditService) LogUserCreate(c *fiber.Ctx, newUserID uint, newUsername string) {
-	s.NewLog(c).
-		Entity(models.EntityUser, fmt.Sprintf("%d", newUserID)).
-		Action(models.ActionCreate).
-		Change("username", "", newUsername).
-		SaveAsync()
+// LogUserCreate - логирование создания пользователя
+func (s *AuditService) LogUserCreate(c *fiber.Ctx, userID uint, username string) {
+	auditLog := s.NewLog(c)
+	auditLog.SetAction(models.ActionCreate).
+		SetEntityType(models.EntityUser).
+		SetEntityID(fmt.Sprintf("%d", userID)).
+		SetDetails(fmt.Sprintf("User '%s' created.", username))
+	auditLog.SaveAsync()
 }
 
-// LogUserUpdate - логирует обновление пользователя
+// LogUserUpdate - логирование обновления пользователя
 func (s *AuditService) LogUserUpdate(c *fiber.Ctx, userID uint, field, oldValue, newValue string) {
-	s.NewLog(c).
-		Entity(models.EntityUser, fmt.Sprintf("%d", userID)).
-		Action(models.ActionUpdate).
-		Change(field, oldValue, newValue).
-		SaveAsync()
+	auditLog := s.NewLog(c)
+	auditLog.SetAction(models.ActionUpdate).
+		SetEntityType(models.EntityUser).
+		SetEntityID(fmt.Sprintf("%d", userID)).
+		SetDetails(fmt.Sprintf("User field '%s' updated from '%s' to '%s'.", field, oldValue, newValue))
+	auditLog.SaveAsync()
 }
 
-// LogUserDelete - логирует удаление пользователя
+// LogUserDelete - логирование удаления пользователя
 func (s *AuditService) LogUserDelete(c *fiber.Ctx, userID uint, username string) {
 	s.NewLog(c).
 		Entity(models.EntityUser, fmt.Sprintf("%d", userID)).
@@ -350,4 +322,30 @@ func (s *AuditService) LogExport(c *fiber.Ctx, exportType string, recordCount in
 		Action(models.ActionExport).
 		Change("count", "", fmt.Sprintf("%d", recordCount)).
 		SaveAsync()
+}
+
+// LogStatusChangeQueued - логирование постановки в очередь изменения статуса
+func (s *AuditService) LogStatusChangeQueued(c *fiber.Ctx, msisdn, oldStatus, newStatus, source string) {
+	auditLog := s.NewLog(c)
+	auditLog.SetAction(models.ActionStatusChange).
+		SetEntityType(models.EntitySIM).
+		SetEntityID(msisdn).
+		SetStatus(models.AuditStatusQueued).
+		SetDetails(fmt.Sprintf("Status change from '%s' to '%s' queued. Source: %s", oldStatus, newStatus, source))
+	auditLog.SaveAsync()
+}
+
+// LogBulkStatusChange - логирование массового изменения статуса
+func (s *AuditService) LogBulkStatusChange(c *fiber.Ctx, count int, newStatus string, msisdns []string) {
+	details := fmt.Sprintf("Bulk status change to '%s' for %d SIMs.", newStatus, count)
+	if len(msisdns) > 0 {
+		details += fmt.Sprintf(" MSISDNs: %v", msisdns)
+	}
+
+	auditLog := s.NewLog(c)
+	auditLog.SetAction(models.ActionBulkChange).
+		SetEntityType(models.EntitySIM).
+		SetStatus(models.AuditStatusQueued).
+		SetDetails(details)
+	auditLog.SaveAsync()
 }

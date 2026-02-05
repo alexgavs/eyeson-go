@@ -102,3 +102,13 @@ func GetStats(c *fiber.Ctx) error {
 		"cached":  false,
 	})
 }
+
+// InvalidateStatsCache сбрасывает кэш статистики
+// Вызывается после изменения статуса SIM
+func InvalidateStatsCache() {
+	statsCacheMutex.Lock()
+	defer statsCacheMutex.Unlock()
+	statsCache = nil
+	statsLastUpdate = time.Time{}
+	log.Println("[Stats] Cache invalidated")
+}

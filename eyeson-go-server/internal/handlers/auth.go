@@ -246,13 +246,13 @@ func UpdateUser(c *fiber.Ctx) error {
 		services.Audit.LogUserUpdate(c, user.ID, "email", oldEmail, req.Email)
 	}
 
-	if req.Role != "" {
+	if req.Role != "" && req.Role != user.Role.Name {
 		var role models.Role
 		if err := database.DB.Where("name = ?", req.Role).First(&role).Error; err == nil {
-			if role.Name != oldRole {
-				user.RoleID = role.ID
-				services.Audit.LogUserUpdate(c, user.ID, "role", oldRole, role.Name)
-			}
+			// Update both the ID for saving and the in-memory struct for the response
+			user.RoleID = role.ID
+			user.Role = role
+			services.Audit.LogUserUpdate(c, user.ID, "role", oldRole, role.Name)
 		}
 	}
 
@@ -265,7 +265,24 @@ func UpdateUser(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Could not update user"})
 	}
 
-	return c.JSON(fiber.Map{"message": "User updated successfully"})
+	// Reload user with updated role to return correct data
+	database.DB.Preload("Role").First(&user, userID)
+
+	// Format user data consistently with GetUsers
+	responseUser := fiber.Map{
+		"id":         user.ID,
+		"username":   user.Username,
+		"email":      user.Email,
+		"role":       user.Role.Name,
+		"is_active":  user.IsActive,
+		"created_at": user.CreatedAt,
+		"updated_at": user.UpdatedAt,
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "User updated successfully",
+		"user":    responseUser,
+	})
 }
 
 func DeleteUser(c *fiber.Ctx) error {
