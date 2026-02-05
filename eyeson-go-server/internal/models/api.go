@@ -102,10 +102,12 @@ type GetJobsRequest struct {
 }
 
 type JobAction struct {
-	RequestType string `json:"requestType"`
-	TargetValue string `json:"targetValue"`
-	Status      string `json:"status"`
-	ErrorDesc   string `json:"errorDesc,omitempty"`
+	NeId         string `json:"neId,omitempty"`         // SIM identifier (CLI or MSISDN)
+	RequestType  string `json:"requestType"`
+	InitialValue string `json:"initialValue,omitempty"` // Value before change
+	TargetValue  string `json:"targetValue"`
+	Status       string `json:"status"`
+	ErrorDesc    string `json:"errorDesc,omitempty"`
 }
 
 type Job struct {

@@ -1689,11 +1689,11 @@ function App() {
                 <thead>
                   <tr>
                     <th>Job ID</th>
+                    <th>SIM</th>
                     <th>Action Type</th>
                     <th>Change</th>
                     <th>Status</th>
                     <th>Created</th>
-                    <th>Last Updated</th>
                     <th>Details</th>
                   </tr>
                 </thead>
@@ -1708,15 +1708,17 @@ function App() {
                       const status = firstAction.status || job.jobStatus || job.status || 'PENDING';
                       const message = firstAction.errorDesc || '';
                       const changeDisplay = initialValue ? `${initialValue} → ${targetValue}` : targetValue;
+                      // Find neId (SIM identifier) from any action
+                      const neId = actions.find((a: any) => a.neId)?.neId || '-';
 
                       return (
                         <tr key={job.jobId}>
                           <td><strong>{job.jobId}</strong></td>
+                          <td><code className="text-warning">{neId}</code></td>
                           <td><small>{actionType.replace(/_/g, ' ')}</small></td>
                           <td><code className="text-info">{changeDisplay}</code></td>
                           <td><JobStatusBadge status={status} /></td>
                           <td><small>{formatDate(job.requestTime)}</small></td>
-                          <td><small>{formatDate(job.lastActionTime)}</small></td>
                           <td>
                             <button 
                               className="btn btn-outline-info btn-sm py-0 px-1"
@@ -1813,11 +1815,15 @@ function App() {
                   <div className="modal-body">
                     {/* Job Summary */}
                     <div className="row mb-3">
-                      <div className="col-6">
+                      <div className="col-4">
+                        <small className="text-muted">SIM (neId)</small>
+                        <div><code className="text-warning">{(selectedJob.actions || []).find((a: any) => a.neId)?.neId || '-'}</code></div>
+                      </div>
+                      <div className="col-4">
                         <small className="text-muted">Created</small>
                         <div>{formatDate(selectedJob.requestTime)}</div>
                       </div>
-                      <div className="col-6">
+                      <div className="col-4">
                         <small className="text-muted">Last Updated</small>
                         <div>{formatDate(selectedJob.lastActionTime)}</div>
                       </div>
@@ -1830,6 +1836,7 @@ function App() {
                         <thead>
                           <tr>
                             <th>#</th>
+                            <th>SIM</th>
                             <th>Type</th>
                             <th>Target</th>
                             <th>Status</th>
@@ -1841,10 +1848,17 @@ function App() {
                             <tr key={idx}>
                               <td className="text-muted">{idx + 1}</td>
                               <td>
-                                <code className="text-warning">{(action.requestType || '-').replace(/_/g, ' ')}</code>
+                                {action.neId ? (
+                                  <code className="text-warning">{action.neId}</code>
+                                ) : (
+                                  <small className="text-muted">-</small>
+                                )}
                               </td>
                               <td>
-                                <code className="text-info">{action.targetValue || '-'}</code>
+                                <code className="text-info">{(action.requestType || '-').replace(/_/g, ' ')}</code>
+                              </td>
+                              <td>
+                                <code>{action.targetValue || '-'}</code>
                                 {action.initialValue && (
                                   <small className="text-muted d-block">from: {action.initialValue}</small>
                                 )}
