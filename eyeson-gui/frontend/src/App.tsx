@@ -1628,28 +1628,14 @@ function App() {
         </>
       )}
 
-      {/* Страница Jobs */}
+      {/* Страница Jobs - Pelephone API Jobs */}
       {navPage === 'jobs' && (
-        <div className="card shadow-sm">
-          <div className="card-header bg-white d-flex justify-content-between align-items-center py-3">
-            <h5 className="mb-0 text-primary">Provisioning Jobs (External)</h5>
-          </div>
-          {/* External Jobs Content Omitted for brevity, assuming it was here */}
-          <div className="card-body">
-              <div className="alert alert-info">
-                  Viewing external jobs from remote API. For internal queue, switch to "Queue" tab.
-              </div>
-              {/* Reuse existing rendering logic or if it was inline, it stays here */}
-          </div>
-      </div>
-      )}
-
-      {navPage === 'queue' && <QueueView />}
-
-      {navPage === 'stats' && (
         <div>
           <div className="d-flex justify-content-between align-items-center mb-4">
-            <h1 className="h3 mb-0 text-white">API Provisioning Jobs</h1>
+            <h1 className="h3 mb-0 text-white">Pelephone Provisioning Jobs</h1>
+            <button className="btn btn-outline-light btn-sm" onClick={() => { setJobsLoaded(false); loadJobs(true); }}>
+              🔄 Refresh
+            </button>
           </div>
 
           {/* Фильтры */}
@@ -1712,11 +1698,8 @@ function App() {
                       const actionType = firstAction.requestType || job.actionType || '-';
                       const initialValue = firstAction.initialValue || '';
                       const targetValue = firstAction.targetValue || job.targetValue || '-';
-                      // Status from first action or fallback
                       const status = firstAction.status || job.jobStatus || job.status || 'PENDING';
-                      // Message from first action
                       const message = firstAction.errorDesc || '';
-                      // Change display: initial -> target
                       const changeDisplay = initialValue ? `${initialValue} → ${targetValue}` : targetValue;
 
                       return (
@@ -1748,7 +1731,7 @@ function App() {
                   ) : (
                     <tr>
                       <td colSpan={7} className="text-center py-4 text-muted">
-                        {loading ? 'Loading...' : 'No jobs found'}
+                        {loading ? 'Loading...' : 'No jobs found from Pelephone API'}
                       </td>
                     </tr>
                   )}
@@ -1757,61 +1740,64 @@ function App() {
             </div>
 
             {/* Пагинация */}
-            <div className="card-footer d-flex justify-content-between align-items-center py-3">
-              <div className="d-flex align-items-center gap-3">
-                <span className="text-muted small">
-                  Записи {(jobsPage - 1) * jobsPerPage + 1}-{Math.min(jobsPage * jobsPerPage, allJobs.length)} из <strong>{allJobs.length}</strong>
-                </span>
-                <select 
-                  className="form-select form-select-sm" 
-                  style={{width: 'auto'}}
-                  value={jobsPerPage}
-                  onChange={(e) => { setJobsPerPage(parseInt(e.target.value)); setJobsPage(1); }}
-                >
-                  <option value="10">10 / стр</option>
-                  <option value="25">25 / стр</option>
-                  <option value="50">50 / стр</option>
-                  <option value="100">100 / стр</option>
-                </select>
+            {allJobs.length > 0 && (
+              <div className="card-footer d-flex justify-content-between align-items-center py-3">
+                <div className="d-flex align-items-center gap-3">
+                  <span className="text-muted small">
+                    Records {(jobsPage - 1) * jobsPerPage + 1}-{Math.min(jobsPage * jobsPerPage, allJobs.length)} of <strong>{allJobs.length}</strong>
+                  </span>
+                  <select 
+                    className="form-select form-select-sm" 
+                    style={{width: 'auto'}}
+                    value={jobsPerPage}
+                    onChange={(e) => { setJobsPerPage(parseInt(e.target.value)); setJobsPage(1); }}
+                  >
+                    <option value="10">10 / page</option>
+                    <option value="25">25 / page</option>
+                    <option value="50">50 / page</option>
+                    <option value="100">100 / page</option>
+                  </select>
+                </div>
+                <nav>
+                  <ul className="pagination pagination-sm mb-0">
+                    <li className={`page-item ${jobsPage <= 1 ? 'disabled' : ''}`}>
+                      <button className="page-link" onClick={() => setJobsPage(1)} disabled={jobsPage <= 1}>«</button>
+                    </li>
+                    <li className={`page-item ${jobsPage <= 1 ? 'disabled' : ''}`}>
+                      <button className="page-link" onClick={() => setJobsPage(p => p - 1)} disabled={jobsPage <= 1}>‹</button>
+                    </li>
+                    {Array.from({ length: Math.min(5, jobsTotalPages) }, (_, i) => {
+                      let pageNum;
+                      if (jobsTotalPages <= 5) {
+                        pageNum = i + 1;
+                      } else if (jobsPage <= 3) {
+                        pageNum = i + 1;
+                      } else if (jobsPage >= jobsTotalPages - 2) {
+                        pageNum = jobsTotalPages - 4 + i;
+                      } else {
+                        pageNum = jobsPage - 2 + i;
+                      }
+                      return (
+                        <li key={pageNum} className={`page-item ${jobsPage === pageNum ? 'active' : ''}`}>
+                          <button className="page-link" onClick={() => setJobsPage(pageNum)}>{pageNum}</button>
+                        </li>
+                      );
+                    })}
+                    <li className={`page-item ${jobsPage >= jobsTotalPages ? 'disabled' : ''}`}>
+                      <button className="page-link" onClick={() => setJobsPage(p => p + 1)} disabled={jobsPage >= jobsTotalPages}>›</button>
+                    </li>
+                    <li className={`page-item ${jobsPage >= jobsTotalPages ? 'disabled' : ''}`}>
+                      <button className="page-link" onClick={() => setJobsPage(jobsTotalPages)} disabled={jobsPage >= jobsTotalPages}>»</button>
+                    </li>
+                  </ul>
+                </nav>
               </div>
-              <nav>
-                <ul className="pagination pagination-sm mb-0">
-                  <li className={`page-item ${jobsPage <= 1 ? 'disabled' : ''}`}>
-                    <button className="page-link" onClick={() => setJobsPage(1)} disabled={jobsPage <= 1}>«</button>
-                  </li>
-                  <li className={`page-item ${jobsPage <= 1 ? 'disabled' : ''}`}>
-                    <button className="page-link" onClick={() => setJobsPage(p => p - 1)} disabled={jobsPage <= 1}>‹</button>
-                  </li>
-                  {/* Номера страниц */}
-                  {Array.from({ length: Math.min(5, jobsTotalPages) }, (_, i) => {
-                    let pageNum;
-                    if (jobsTotalPages <= 5) {
-                      pageNum = i + 1;
-                    } else if (jobsPage <= 3) {
-                      pageNum = i + 1;
-                    } else if (jobsPage >= jobsTotalPages - 2) {
-                      pageNum = jobsTotalPages - 4 + i;
-                    } else {
-                      pageNum = jobsPage - 2 + i;
-                    }
-                    return (
-                      <li key={pageNum} className={`page-item ${jobsPage === pageNum ? 'active' : ''}`}>
-                        <button className="page-link" onClick={() => setJobsPage(pageNum)}>{pageNum}</button>
-                      </li>
-                    );
-                  })}
-                  <li className={`page-item ${jobsPage >= jobsTotalPages ? 'disabled' : ''}`}>
-                    <button className="page-link" onClick={() => setJobsPage(p => p + 1)} disabled={jobsPage >= jobsTotalPages}>›</button>
-                  </li>
-                  <li className={`page-item ${jobsPage >= jobsTotalPages ? 'disabled' : ''}`}>
-                    <button className="page-link" onClick={() => setJobsPage(jobsTotalPages)} disabled={jobsPage >= jobsTotalPages}>»</button>
-                  </li>
-                </ul>
-              </nav>
-            </div>
+            )}
           </div>
         </div>
       )}
+
+      {navPage === 'queue' && <QueueView />}
 
       {/* Страница Statistics */}
       {navPage === 'stats' && (
