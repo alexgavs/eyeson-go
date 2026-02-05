@@ -2046,7 +2046,7 @@ function App() {
                       <strong>Session Timeout:</strong> <span className="text-muted">24 hours</span>
                     </li>
                     <li className="py-2 border-bottom border-secondary">
-                      <strong>API Documentation:</strong>
+                      <strong>Documentation:</strong>
                       <div className="mt-1 d-flex flex-wrap gap-3">
                         <a href="/swagger.html" target="_blank" className="text-info text-decoration-none" title="Local API Documentation">
                           📄 Swagger
@@ -2054,14 +2054,6 @@ function App() {
                         <a href="https://eot-portal.pelephone.co.il:8888/ipa/apis/docs" target="_blank" className="text-warning text-decoration-none" title="Pelephone EyesOnT API">
                           🌐 Pelephone API
                         </a>
-                        <a href="/diagnostics.html" target="_blank" className="text-success text-decoration-none" title="API Diagnostics">
-                          🔧 Diagnostics
-                        </a>
-                      </div>
-                    </li>
-                    <li className="py-2 border-bottom border-secondary">
-                      <strong>Project Docs:</strong>
-                      <div className="mt-1 d-flex flex-wrap gap-3">
                         <a href="https://github.com/alexgavs/eyeson-go/blob/main/docs/ARCHITECTURE.md" target="_blank" className="text-info text-decoration-none" title="Architecture Documentation">
                           🏗️ Architecture
                         </a>
