@@ -31,19 +31,6 @@ func New(db *gorm.DB) *Syncer {
 	}
 }
 
-func (s *Syncer) SetPaused(paused bool) {
-	var val int32 = 0
-	if paused {
-		val = 1
-	}
-	atomic.StoreInt32(&s.paused, val)
-	status := "RESUMED"
-	if paused {
-		status = "PAUSED"
-	}
-	log.Printf("[Syncer] Status changed to %s", status)
-}
-
 func (s *Syncer) IsPaused() bool {
 	return atomic.LoadInt32(&s.paused) == 1
 }
@@ -85,14 +72,14 @@ func (s *Syncer) shouldSync() bool {
 	return true
 }
 
-func (s *Syncer) SyncFull() {
+func (s *Syncer) SyncFull() (int, error) {
 	if s.IsPaused() {
-		return
+		return 0, nil
 	}
 
 	if s.Client == nil {
 		log.Println("[Syncer] Error: API Client not initialized")
-		return
+		return 0, nil
 	}
 
 	log.Println("[Syncer] Starting full sync cycle...")
@@ -101,6 +88,7 @@ func (s *Syncer) SyncFull() {
 	start := 0
 	limit := 500 // Fetch 500 at a time
 	totalProcessed := 0
+	var lastErr error
 
 	for {
 		if s.IsPaused() {
@@ -122,6 +110,7 @@ func (s *Syncer) SyncFull() {
 		if err != nil {
 			log.Printf("[Syncer] Error fetching SIMs: %v", err)
 			log.Println("[Syncer] API unavailable - will retry on next cycle")
+			lastErr = err
 			break // Stop sync on error but don't crash
 		}
 
@@ -132,6 +121,7 @@ func (s *Syncer) SyncFull() {
 		// Process batch
 		if err := s.processBatch(resp.Data); err != nil {
 			log.Printf("[Syncer] Error processing batch: %v", err)
+			lastErr = err
 		}
 
 		totalProcessed += len(resp.Data)
@@ -148,6 +138,7 @@ func (s *Syncer) SyncFull() {
 
 	duration := time.Since(startTime)
 	log.Printf("[Syncer] Full sync completed in %v. Processed %d records.", duration, totalProcessed)
+	return totalProcessed, lastErr
 }
 
 func (s *Syncer) processBatch(sims []models.SimData) error {

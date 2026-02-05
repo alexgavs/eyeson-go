@@ -7,6 +7,7 @@ package services
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -94,18 +95,6 @@ func (s *AuditService) NewLog(c *fiber.Ctx) *LogBuilder {
 	}
 }
 
-// NewSystemLog создаёт builder для системной записи (без пользователя)
-func (s *AuditService) NewSystemLog() *LogBuilder {
-	return &LogBuilder{
-		log: &models.AuditLog{
-			Username:  "system",
-			Source:    models.SourceSystem,
-			Status:    models.AuditStatusSuccess,
-			CreatedAt: time.Now(),
-		},
-	}
-}
-
 // NewWorkerLog создаёт builder для записи от worker'а
 func (s *AuditService) NewWorkerLog() *LogBuilder {
 	return &LogBuilder{
@@ -130,12 +119,6 @@ func (b *LogBuilder) Entity(entityType models.EntityType, entityID string) *LogB
 // Action устанавливает тип действия
 func (b *LogBuilder) Action(action models.AuditAction) *LogBuilder {
 	b.log.Action = action
-	return b
-}
-
-// Source устанавливает источник действия
-func (b *LogBuilder) Source(source models.AuditSource) *LogBuilder {
-	b.log.Source = source
 	return b
 }
 
@@ -214,27 +197,8 @@ func (b *LogBuilder) SaveAsync() {
 	}()
 }
 
-// GetLog возвращает построенную запись (для тестов)
-func (b *LogBuilder) GetLog() *models.AuditLog {
-	return b.log
-}
-
 // ─── БЫСТРЫЕ МЕТОДЫ ЛОГИРОВАНИЯ ────────────────────────────
 
-// LogStatusChange - логирует изменение статуса SIM
-func (s *AuditService) LogStatusChange(c *fiber.Ctx, cli, msisdn, oldStatus, newStatus string, providerReqID int, responseMs int64, err error) {
-	builder := s.NewLog(c).
-		Entity(models.EntitySIM, msisdn).
-		Action(models.ActionStatusChange).
-		Change("status", oldStatus, newStatus).
-		Provider(providerReqID, responseMs)
-
-	if err != nil {
-		builder.Failed(err)
-	}
-
-	builder.SaveAsync()
-}
 
 // LogStatusChangeQueued - логирует постановку изменения статуса в очередь
 func (s *AuditService) LogStatusChangeQueued(c *fiber.Ctx, cli, msisdn, oldStatus, newStatus string, taskID uint, reason error) {
@@ -312,14 +276,6 @@ func (s *AuditService) LogLogin(c *fiber.Ctx, userID uint, username, role string
 	builder.SaveAsync()
 }
 
-// LogLogout - логирует выход пользователя
-func (s *AuditService) LogLogout(c *fiber.Ctx) {
-	s.NewLog(c).
-		Entity(models.EntitySession, s.GetUserContext(c).Username).
-		Action(models.ActionLogout).
-		SaveAsync()
-}
-
 // LogQueueCompleted - логирует успешное выполнение задачи из очереди
 func (s *AuditService) LogQueueCompleted(taskID uint, msisdn, result string, responseMs int64) {
 	s.NewWorkerLog().
@@ -336,7 +292,7 @@ func (s *AuditService) LogQueueFailed(taskID uint, msisdn, errMsg string, durati
 		Entity(models.EntitySIM, msisdn).
 		Action(models.ActionQueueFail).
 		Task(taskID).
-		Failed(fmt.Errorf(errMsg)).
+		Failed(errors.New(errMsg)).
 		SaveAsync()
 }
 
@@ -358,23 +314,6 @@ func (s *AuditService) LogQueueCancel(c *fiber.Ctx, task *models.SyncTaskExtende
 		Action(models.ActionQueueCancel).
 		Task(task.ID).
 		SaveAsync()
-}
-
-// LogSync - логирует синхронизацию данных
-func (s *AuditService) LogSync(syncedCount int, responseMs int64, err error) {
-	builder := s.NewSystemLog().
-		Entity(models.EntitySystem, "sync").
-		Action(models.ActionSync).
-		Source(models.SourceSync).
-		Provider(0, responseMs)
-
-	builder.log.NewValue = fmt.Sprintf("%d records", syncedCount)
-
-	if err != nil {
-		builder.Failed(err)
-	}
-
-	builder.SaveAsync()
 }
 
 // LogUserCreate - логирует создание пользователя

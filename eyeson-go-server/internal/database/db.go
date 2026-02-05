@@ -7,6 +7,7 @@ package database
 
 import (
 	"log"
+	"strings"
 
 	"eyeson-go-server/internal/config"
 	"eyeson-go-server/internal/models"
@@ -32,6 +33,7 @@ func Connect(cfg *config.Config) {
 		&models.User{},
 		&models.Role{},
 		&models.ActivityLog{},
+		&models.SystemSetting{},
 		&models.SimCard{},
 		&models.SyncTask{},
 		&models.SimHistory{},
@@ -48,7 +50,7 @@ func Connect(cfg *config.Config) {
 	// Migrate old activity logs to new audit format (one-time migration)
 	migrateActivityLogs()
 
-	seedDatabase()
+	seedDatabase(cfg)
 }
 
 // createAuditIndexes creates indexes for efficient audit log queries
@@ -140,7 +142,7 @@ func mapActivityAction(oldAction string) models.AuditAction {
 	}
 }
 
-func seedDatabase() {
+func seedDatabase(cfg *config.Config) {
 	var count int64
 	DB.Model(&models.Role{}).Count(&count)
 	if count == 0 {
@@ -166,21 +168,30 @@ func seedDatabase() {
 		DB.Create(&viewerRole)
 		log.Println("Created default roles: Administrator, Moderator, Viewer")
 
-		// Create default admin user with bcrypt password
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte("admin"), bcrypt.DefaultCost)
-		if err != nil {
-			log.Fatalf("Failed to hash default admin password: %v", err)
-		}
+		if cfg != nil && cfg.SeedDefaultAdmin {
+			adminPassword := strings.TrimSpace(cfg.DefaultAdminPassword)
+			if adminPassword == "" {
+				adminPassword = "admin"
+			}
 
-		adminUser := models.User{
-			Username:     "admin",
-			Email:        "admin@eyeson.local",
-			PasswordHash: string(hashedPassword),
-			RoleID:       adminRole.ID,
-			IsActive:     true,
+			// Create default admin user with bcrypt password
+			hashedPassword, err := bcrypt.GenerateFromPassword([]byte(adminPassword), bcrypt.DefaultCost)
+			if err != nil {
+				log.Fatalf("Failed to hash default admin password: %v", err)
+			}
+
+			adminUser := models.User{
+				Username:     "admin",
+				Email:        "admin@eyeson.local",
+				PasswordHash: string(hashedPassword),
+				RoleID:       adminRole.ID,
+				IsActive:     true,
+			}
+			DB.Create(&adminUser)
+			log.Println("Database seeded with default admin user (username: admin)")
+			log.Println("⚠️  IMPORTANT: Change the default password immediately!")
+		} else {
+			log.Println("Default admin user seeding is disabled")
 		}
-		DB.Create(&adminUser)
-		log.Println("Database seeded with default admin user (username: admin, password: admin)")
-		log.Println("⚠️  IMPORTANT: Change the default password immediately!")
 	}
 }

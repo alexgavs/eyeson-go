@@ -1,0 +1,6 @@
+general/login
+general/logout
+provisioning/getProvisioningData
+provisioning/getProvisioningJobList
+provisioning/getProvisioningParameterList
+provisioning/updateProvisioningData

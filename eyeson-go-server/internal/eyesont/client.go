@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
+	"eyeson-go-server/internal/models"
 	"fmt"
 	"io"
 	"log"
@@ -17,8 +18,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"eyeson-go-server/internal/models"
 )
 
 // Instance - глобальный экземпляр клиента API
@@ -40,45 +39,15 @@ type Client struct {
 	loginTime  time.Time
 }
 
-// Init инициализирует глобальный клиент API
-func Init(cfg interface {
-	GetApiBaseUrl() string
-	GetApiUsername() string
-	GetApiPassword() string
-}) {
-	// Используем рефлексию через структуру для совместимости
-	type configLike interface {
-		GetApiBaseUrl() string
-		GetApiUsername() string
-		GetApiPassword() string
-	}
-
-	// Попробуем прочитать напрямую из полей
-	type configFields struct {
-		ApiBaseUrl  string
-		ApiUsername string
-		ApiPassword string
-	}
-
-	// Проверим, поддерживает ли конфиг интерфейс
-	if c, ok := cfg.(configLike); ok {
-		Instance = NewClient(c.GetApiBaseUrl(), c.GetApiUsername(), c.GetApiPassword(), 1000)
-
-		// Выполняем login при старте
-		log.Println("[EyesOnT API] Performing initial startup login...")
-		if err := Instance.Login(); err != nil {
-			log.Printf("[EyesOnT API] WARNING: Initial login failed: %v", err)
-		} else {
-			log.Println("[EyesOnT API] Initial login successful")
-		}
-	}
-}
-
 // InitWithConfig инициализирует клиент с прямыми значениями
-func InitWithConfig(baseURL, username, password string, apiDelayMs int) {
-	Instance = NewClient(baseURL, username, password, apiDelayMs)
+func InitWithConfig(baseURL, username, password string, apiDelayMs int, insecureTLS bool) {
+	Instance = NewClient(baseURL, username, password, apiDelayMs, insecureTLS)
 	maskedPassword := maskPassword(password)
-	log.Printf("[EyesOnT API] Initialized: URL=%s, User=%s, Password=%s, Delay=%dms", baseURL, username, maskedPassword, apiDelayMs)
+	if insecureTLS {
+		log.Printf("[EyesOnT API] Initialized (INSECURE TLS): URL=%s, User=%s, Password=%s, Delay=%dms", baseURL, username, maskedPassword, apiDelayMs)
+	} else {
+		log.Printf("[EyesOnT API] Initialized: URL=%s, User=%s, Password=%s, Delay=%dms", baseURL, username, maskedPassword, apiDelayMs)
+	}
 
 	// Выполняем login при старте
 	log.Println("[EyesOnT API] Performing initial startup login...")
@@ -117,17 +86,23 @@ func maskPasswordInBody(body interface{}) interface{} {
 	if pwd, ok := m["password"].(string); ok {
 		m["password"] = maskPassword(pwd)
 	}
+	// Маскируем username тоже (в dev всё равно лишнее светить)
+	if u, ok := m["username"].(string); ok {
+		if u != "" {
+			m["username"] = u[:1] + "***"
+		}
+	}
 
 	return m
 }
 
 // NewClient создает новый клиент с cookie-jar для сессий
-func NewClient(baseURL, username, password string, apiDelayMs int) *Client {
+func NewClient(baseURL, username, password string, apiDelayMs int, insecureTLS bool) *Client {
 	jar, _ := cookiejar.New(nil)
 
 	client := &http.Client{
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: insecureTLS},
 		},
 		Jar:     jar,
 		Timeout: 30 * time.Second,
@@ -163,54 +138,67 @@ func (c *Client) Login() error {
 	}
 
 	body, _ := json.Marshal(loginReq)
-	url := fmt.Sprintf("%s/ipa/apis/json/general/login", c.BaseURL)
+	loginURL := fmt.Sprintf("%s/ipa/apis/json/general/login", c.BaseURL)
 
-	log.Printf("[EyesOnT API] Sending LOGIN request to %s", url)
+	log.Printf("[EyesOnT API] Sending LOGIN request to %s", loginURL)
 
-	resp, err := c.httpClient.Post(url, "application/json", bytes.NewBuffer(body))
+	// Создаём запрос с browser-like заголовками для обхода Incapsula WAF
+	req, err := http.NewRequest("POST", loginURL, bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("login request creation failed: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9,he;q=0.8")
+	req.Header.Set("Origin", c.BaseURL)
+	req.Header.Set("Referer", c.BaseURL+"/")
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("login request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
-	log.Printf("[EyesOnT API] LOGIN RESPONSE (status=%d): %s", resp.StatusCode, string(respBody))
+	log.Printf("[EyesOnT API] LOGIN RESPONSE (status=%d, bytes=%d)", resp.StatusCode, len(respBody))
+
+	// Проверяем, что ответ - JSON, а не HTML
+	respStr := strings.TrimSpace(string(respBody))
+	if len(respStr) > 0 && respStr[0] != '{' && respStr[0] != '[' {
+		preview := respStr
+		if len(preview) > 500 {
+			preview = preview[:500] + "..."
+		}
+		log.Printf("[EyesOnT API] LOGIN ERROR: response is not JSON:\n%s", preview)
+		return fmt.Errorf("login failed: API returned non-JSON response (possibly HTML error page)")
+	}
 
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("login failed with status %d: %s", resp.StatusCode, string(respBody))
+		errBody := respStr
+		if len(errBody) > 200 {
+			errBody = errBody[:200] + "..."
+		}
+		return fmt.Errorf("login failed with status %d: %s", resp.StatusCode, errBody)
 	}
 
 	var result struct {
 		Result    string `json:"result"`
 		SessionId string `json:"sessionId"`
 		JwtToken  string `json:"jwtToken"`
+		Message   string `json:"message"`
 	}
 	if err := json.Unmarshal(respBody, &result); err == nil && result.Result == "SUCCESS" {
 		c.loggedIn = true
 		c.loginTime = time.Now()
-		log.Printf("[EyesOnT API] LOGIN SUCCESS - SessionId: %s", result.SessionId)
-		if len(result.JwtToken) > 20 {
-			log.Printf("[EyesOnT API] JWT Token received (len=%d): %s...", len(result.JwtToken), result.JwtToken[:20])
-		}
+		log.Printf("[EyesOnT API] LOGIN SUCCESS")
 		return nil
 	}
 
-	// Даже если ответ не SUCCESS, cookies могут быть установлены
-	c.loggedIn = true
-	c.loginTime = time.Now()
-	return nil
-}
-
-// EnsureSession проверяет и обновляет сессию при необходимости
-func (c *Client) EnsureSession() error {
-	c.sessionMu.RLock()
-	needsLogin := !c.loggedIn || time.Since(c.loginTime) > 25*time.Minute
-	c.sessionMu.RUnlock()
-
-	if needsLogin {
-		return c.Login()
-	}
-	return nil
+	// Логин не удался - логируем причину и возвращаем ошибку
+	log.Printf("[EyesOnT API] LOGIN FAILED: result=%s, message=%s, response=%s", result.Result, result.Message, respStr)
+	return fmt.Errorf("login failed: result=%s, message=%s", result.Result, result.Message)
 }
 
 // doRequest выполняет HTTP запрос с rate limiting для защиты от WAF
@@ -235,16 +223,27 @@ func (c *Client) doRequest(method, url string, body interface{}) (*http.Response
 		}
 		bodyReader = bytes.NewBuffer(jsonBody)
 
-		// Логируем запрос (скрываем пароль)
+		// Логируем запрос (скрываем логин/пароль)
 		logBody := maskPasswordInBody(body)
 		jsonIndented, _ := json.MarshalIndent(logBody, "", "  ")
-		log.Printf("[EyesOnT API] Authenticated REQUEST to %s (with username/password in body)\nPayload: %s", url, string(jsonIndented))
+		if len(jsonIndented) > 500 {
+			jsonIndented = append(jsonIndented[:500], []byte("...")...)
+		}
+		log.Printf("[EyesOnT API] REQUEST %s %s\nPayload: %s", method, url, string(jsonIndented))
 	}
 
 	req, err := http.NewRequest(method, url, bodyReader)
 	if err != nil {
 		return nil, err
 	}
+
+	// Browser-like headers для обхода Incapsula WAF
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9,he;q=0.8")
+	req.Header.Set("Origin", c.BaseURL)
+	req.Header.Set("Referer", c.BaseURL+"/")
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
 
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -257,25 +256,34 @@ func (c *Client) doRequest(method, url string, body interface{}) (*http.Response
 func (c *Client) GetSims(start, limit int, search []models.SearchParam, sortBy, sortDirection string) (*models.GetProvisioningDataResponse, error) {
 	url := fmt.Sprintf("%s/ipa/apis/json/provisioning/getProvisioningData", c.BaseURL)
 
-	// Формируем запрос с username и password
+	// Формируем запрос с username и password (формат по swagger)
 	type RequestBody struct {
-		Start         int                  `json:"start"`
-		Limit         int                  `json:"limit"`
-		Search        []models.SearchParam `json:"search"`
-		SortBy        string               `json:"sortBy"`
-		SortDirection string               `json:"sortDirection"`
 		Username      string               `json:"username"`
 		Password      string               `json:"password"`
+		Start         int                  `json:"start"`
+		Limit         int                  `json:"limit"`
+		SortBy        string               `json:"sortBy"`
+		SortDirection string               `json:"sortDirection"`
+		Search        []models.SearchParam `json:"search"`
+	}
+
+	// Ensure search is not nil (swagger requires array, not null)
+	if search == nil {
+		search = []models.SearchParam{}
+	}
+	// Ensure sortDirection is valid (swagger enum: ASC or DESC)
+	if sortDirection == "" {
+		sortDirection = "ASC"
 	}
 
 	reqBody := RequestBody{
-		Start:         start,
-		Limit:         limit,
-		Search:        search,
-		SortBy:        sortBy,
-		SortDirection: sortDirection,
 		Username:      c.Username,
 		Password:      c.Password,
+		Start:         start,
+		Limit:         limit,
+		SortBy:        sortBy,
+		SortDirection: sortDirection,
+		Search:        search,
 	}
 
 	resp, err := c.doRequest("POST", url, reqBody)
@@ -285,20 +293,31 @@ func (c *Client) GetSims(start, limit int, search []models.SearchParam, sortBy, 
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
+	log.Printf("[EyesOnT API] GetSims RESPONSE (status=%d, bytes=%d)", resp.StatusCode, len(body))
 
-	// Логируем ответ (сокращенно)
-	respStr := string(body)
-	if len(respStr) > 500 {
-		respStr = respStr[:500] + "..."
+	// Проверяем, что ответ - JSON, а не HTML (ошибка API/прокси)
+	bodyStr := strings.TrimSpace(string(body))
+	if len(bodyStr) > 0 && bodyStr[0] != '{' && bodyStr[0] != '[' {
+		// Ответ не JSON - логируем для диагностики
+		preview := bodyStr
+		if len(preview) > 500 {
+			preview = preview[:500] + "..."
+		}
+		log.Printf("[EyesOnT API] GetSims ERROR: response is not JSON:\n%s", preview)
+		return nil, fmt.Errorf("API returned non-JSON response (possibly HTML error page): %s", preview)
 	}
-	log.Printf("[EyesOnT API] RESPONSE (status=%d):\n%s", resp.StatusCode, respStr)
 
 	var result models.GetProvisioningDataResponse
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("unmarshal error: %w", err)
+		// Логируем тело ответа при ошибке парсинга
+		preview := bodyStr
+		if len(preview) > 300 {
+			preview = preview[:300] + "..."
+		}
+		return nil, fmt.Errorf("unmarshal error: %w\nResponse body: %s", err, preview)
 	}
 
-	log.Printf("[EyesOnT API] PARSED: result=%s, count=%d, dataLen=%d", result.Result, result.Count, len(result.Data))
+	log.Printf("[EyesOnT API] GetSims PARSED: result=%s, count=%d, dataLen=%d", result.Result, result.Count, len(result.Data))
 	return &result, nil
 }
 
@@ -321,8 +340,7 @@ func (c *Client) BulkUpdate(msisdns []string, actionType, targetValue string) (*
 		subscribers[i] = map[string]string{"neId": NormalizeMSISDN(m)}
 	}
 
-	log.Printf("[EyesOnT API] BulkUpdate REQUEST: subscribers=%v (from %v), actionType=%s, targetValue=%s",
-		subscribers, msisdns, actionType, targetValue)
+	log.Printf("[EyesOnT API] BulkUpdate REQUEST: subscribers=%d, actionType=%s", len(subscribers), actionType)
 
 	// Формируем запрос в правильном формате API
 	type Action struct {
@@ -358,7 +376,20 @@ func (c *Client) BulkUpdate(msisdns []string, actionType, targetValue string) (*
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	log.Printf("[EyesOnT API] BulkUpdate RESPONSE (status=%d): %s", resp.StatusCode, string(body))
+	log.Printf("[EyesOnT API] BulkUpdate RESPONSE (status=%d, bytes=%d)", resp.StatusCode, len(body))
+
+	// Simulator compatibility: some dev simulators only implement /updateSIMStatusChange.
+	// If /updateProvisioningData is missing, fall back for SIM_STATE_CHANGE.
+	if (resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed) && actionType == "SIM_STATE_CHANGE" {
+		legacyErr := c.bulkUpdateStatusLegacy(msisdns, targetValue)
+		if legacyErr == nil {
+			return &models.BulkUpdateResponse{
+				ResponseBase: models.ResponseBase{Result: "succeeded", Message: "legacy simulator endpoint"},
+				RequestId:    int(time.Now().Unix()),
+			}, nil
+		}
+		return nil, legacyErr
+	}
 
 	var result models.BulkUpdateResponse
 	if err := json.Unmarshal(body, &result); err != nil {
@@ -374,43 +405,123 @@ func (c *Client) BulkUpdate(msisdns []string, actionType, targetValue string) (*
 	return &result, nil
 }
 
-// UpdateSIMLabel обновляет метку SIM-карты (CUSTOMER_LABEL_UPDATE)
-// field: "label_1", "label_2", "label_3"
-func (c *Client) UpdateSIMLabel(cli, field, value string) (*models.BulkUpdateResponse, error) {
-	// Маппинг полей на API actionType
-	actionTypeMap := map[string]string{
-		"label_1": "CUSTOMER_LABEL_UPDATE",
-		"label_2": "CUSTOMER_LABEL_UPDATE",
-		"label_3": "CUSTOMER_LABEL_UPDATE",
+// BulkUpdateLabel обновляет метку SIM-карт
+// labelNum: "1", "2", "3" для label_1, label_2, label_3
+// Согласно спецификации PDF v1.5.2: actionType = "CUSTOMER_LABEL_1" или "CUSTOMER_LABEL_2"
+func (c *Client) BulkUpdateLabel(msisdns []string, labelNum, targetValue string) (*models.BulkUpdateResponse, error) {
+	url := fmt.Sprintf("%s/ipa/apis/json/provisioning/updateProvisioningData", c.BaseURL)
+
+	// Нормализуем MSISDN для Pelephone API (972xxx -> 0xxx)
+	subscribers := make([]map[string]string, len(msisdns))
+	for i, m := range msisdns {
+		subscribers[i] = map[string]string{"neId": NormalizeMSISDN(m)}
 	}
 
-	actionType, ok := actionTypeMap[field]
-	if !ok {
-		actionType = "CUSTOMER_LABEL_UPDATE"
+	// Формируем actionType согласно спецификации: CUSTOMER_LABEL_1, CUSTOMER_LABEL_2, CUSTOMER_LABEL_3
+	actionType := "CUSTOMER_LABEL_" + labelNum
+
+	log.Printf("[EyesOnT API] BulkUpdateLabel REQUEST: subscribers=%d, actionType=%s, targetValue=%s", len(subscribers), actionType, targetValue)
+
+	// Формируем запрос в правильном формате API (согласно PDF v1.5.2)
+	// targetId не нужен для CUSTOMER_LABEL_X
+	type Action struct {
+		ActionType  string              `json:"actionType"`
+		TargetValue string              `json:"targetValue"`
+		TargetId    string              `json:"targetId"`
+		Subscribers []map[string]string `json:"subscribers"`
 	}
 
-	return c.BulkUpdate([]string{cli}, actionType, value)
+	type RequestBody struct {
+		Actions  []Action `json:"actions"`
+		Username string   `json:"username"`
+		Password string   `json:"password"`
+	}
+
+	reqBody := RequestBody{
+		Actions: []Action{
+			{
+				ActionType:  actionType,
+				TargetValue: targetValue,
+				TargetId:    "", // не используется для CUSTOMER_LABEL_X
+				Subscribers: subscribers,
+			},
+		},
+		Username: c.Username,
+		Password: c.Password,
+	}
+
+	resp, err := c.doRequest("POST", url, reqBody)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	log.Printf("[EyesOnT API] BulkUpdateLabel RESPONSE (status=%d, bytes=%d)", resp.StatusCode, len(body))
+
+	var result models.BulkUpdateResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("unmarshal error: %w", err)
+	}
+
+	if result.Result == "SUCCESS" || result.Result == "succeeded" {
+		log.Printf("[EyesOnT API] BulkUpdateLabel SUCCESS: requestId=%d", result.RequestId)
+	} else {
+		log.Printf("[EyesOnT API] BulkUpdateLabel FAILED: %s - %s", result.Result, result.Message)
+	}
+
+	return &result, nil
 }
 
-// UpdateSIMStatus обновляет статус одной SIM-карты
-func (c *Client) UpdateSIMStatus(cli, newStatus string) (*models.BulkUpdateResponse, error) {
-	return c.BulkUpdate([]string{cli}, "SIM_STATE_CHANGE", newStatus)
-}
+func (c *Client) bulkUpdateStatusLegacy(msisdns []string, newStatus string) error {
+	url := fmt.Sprintf("%s/ipa/apis/json/provisioning/updateSIMStatusChange", c.BaseURL)
 
-// BulkUpdateStatus обновляет статус нескольких SIM-карт
-// items: массив с полями cli/msisdn
-func (c *Client) BulkUpdateStatus(items []map[string]string, newStatus string) (*models.BulkUpdateResponse, error) {
-	// Извлекаем CLI/MSISDN из items
-	msisdns := make([]string, 0, len(items))
-	for _, item := range items {
-		if cli, ok := item["cli"]; ok && cli != "" {
-			msisdns = append(msisdns, cli)
-		} else if msisdn, ok := item["msisdn"]; ok && msisdn != "" {
-			msisdns = append(msisdns, msisdn)
+	for _, m := range msisdns {
+		cli := NormalizeMSISDN(m)
+		resp, err := c.doRequest("POST", url, map[string]string{"cli": cli, "status": newStatus})
+		if err != nil {
+			return err
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode >= 400 {
+			return fmt.Errorf("legacy updateSIMStatusChange failed (status=%d, body=%s)", resp.StatusCode, string(body))
+		}
+
+		var parsed struct {
+			Result string `json:"result"`
+			Error  string `json:"error,omitempty"`
+		}
+		if err := json.Unmarshal(body, &parsed); err == nil {
+			if parsed.Result != "" && parsed.Result != "succeeded" {
+				if parsed.Error != "" {
+					return fmt.Errorf("legacy updateSIMStatusChange failed: %s", parsed.Error)
+				}
+				return fmt.Errorf("legacy updateSIMStatusChange failed: result=%s", parsed.Result)
+			}
 		}
 	}
 
-	return c.BulkUpdate(msisdns, "SIM_STATE_CHANGE", newStatus)
+	return nil
+}
+
+// UpdateSIMLabel обновляет метку SIM-карты (CUSTOMER_LABEL_UPDATE)
+// field: "label_1", "label_2", "label_3"
+func (c *Client) UpdateSIMLabel(cli, field, value string) (*models.BulkUpdateResponse, error) {
+	// Маппинг полей на API targetId (номер метки)
+	targetIdMap := map[string]string{
+		"label_1": "1",
+		"label_2": "2",
+		"label_3": "3",
+	}
+
+	targetId, ok := targetIdMap[field]
+	if !ok {
+		targetId = "1" // Default to label_1
+	}
+
+	return c.BulkUpdateLabel([]string{cli}, targetId, value)
 }
 
 // GetJobs получает список задач провизионирования
@@ -447,12 +558,23 @@ func (c *Client) GetJobs(start, limit, jobId int, jobStatus string) (*models.Get
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
+	log.Printf("[EyesOnT API] GetJobs RESPONSE (status=%d, bytes=%d)", resp.StatusCode, len(body))
 
-	respStr := string(body)
-	if len(respStr) > 500 {
-		respStr = respStr[:500] + "..."
+	// Simulator/legacy environments may not implement this endpoint.
+	// In that case, Fiber returns a plain-text/HTML 404/405 (often starting with "Cannot"),
+	// which would otherwise trigger a JSON decode error and break the UI.
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
+		log.Printf("[EyesOnT API] GetJobs endpoint not available (status=%d); returning empty list", resp.StatusCode)
+		return &models.GetJobsResponse{
+			ResponseBase: models.ResponseBase{Result: "succeeded"},
+			Count:        0,
+			Jobs:         []models.Job{},
+		}, nil
 	}
-	log.Printf("[EyesOnT API] GetJobs RESPONSE (status=%d): %s", resp.StatusCode, respStr)
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("GetJobs provider error: status=%d", resp.StatusCode)
+	}
 
 	var result models.GetJobsResponse
 	if err := json.Unmarshal(body, &result); err != nil {
@@ -497,9 +619,4 @@ func (c *Client) CheckConnection() bool {
 	}
 	defer resp.Body.Close()
 	return true
-}
-
-// Close закрывает клиент
-func (c *Client) Close() {
-	// HTTP client не требует явного закрытия
 }

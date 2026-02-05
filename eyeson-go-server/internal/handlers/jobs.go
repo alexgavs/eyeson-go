@@ -19,23 +19,6 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// formatTime converts interface{} to string for time fields
-func formatTime(v interface{}) string {
-	if v == nil {
-		return ""
-	}
-	switch t := v.(type) {
-	case string:
-		return t
-	case float64:
-		return fmt.Sprintf("%.0f", t)
-	case int:
-		return strconv.Itoa(t)
-	default:
-		return fmt.Sprintf("%v", v)
-	}
-}
-
 func GetJobs(c *fiber.Ctx) error {
 	start, _ := strconv.Atoi(c.Query("start", "0"))
 	limit, _ := strconv.Atoi(c.Query("limit", "25"))
@@ -70,7 +53,7 @@ func GetJobs(c *fiber.Ctx) error {
 
 // GetSyncTasks returns the internal queue status
 func GetSyncTasks(c *fiber.Ctx) error {
-	var tasks []models.SyncTask
+	var tasks []models.SyncTaskExtended
 
 	// Simple query: last 100 tasks
 	result := database.DB.Order("created_at desc").Limit(100).Find(&tasks)
@@ -78,7 +61,7 @@ func GetSyncTasks(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": result.Error.Error()})
 	}
 
-	// Map to frontend-expected format
+	// Map to frontend-expected format with extended fields
 	queueTasks := make([]fiber.Map, len(tasks))
 	for i, task := range tasks {
 		queueTasks[i] = fiber.Map{
@@ -88,10 +71,17 @@ func GetSyncTasks(c *fiber.Ctx) error {
 			"status":        task.Status,
 			"created_at":    task.CreatedAt,
 			"updated_at":    task.UpdatedAt,
-			"attempts":      task.Attempt, // Map 'attempt' to 'attempts'
-			"last_error":    task.Result,  // Map 'result' to 'last_error'
+			"attempts":      task.Attempt,
+			"last_error":    task.Result,
 			"next_run_at":   task.NextRunAt,
 			"target_msisdn": task.TargetMSISDN,
+			"target_cli":    task.TargetCLI,
+			"old_status":    task.OldStatus,
+			"new_status":    task.NewStatus,
+			"username":      task.Username,
+			"batch_id":      task.BatchID,
+			"label_field":   task.LabelField,
+			"label_value":   task.LabelValue,
 		}
 	}
 

@@ -1,0 +1,6 @@
+/ipa/apis/json/general/login
+/ipa/apis/json/general/logout
+/ipa/apis/json/provisioning/getProvisioningData
+/ipa/apis/json/provisioning/getProvisioningJobList
+/ipa/apis/json/provisioning/getProvisioningParameterList
+/ipa/apis/json/provisioning/updateProvisioningData

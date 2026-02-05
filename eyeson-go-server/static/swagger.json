@@ -46,6 +46,10 @@
       "description": "SIM card provisioning, status management, and data operations"
     },
     {
+      "name": "Queue",
+      "description": "Task queue management for asynchronous operations. All modifications go through queue for load control and audit logging"
+    },
+    {
       "name": "Jobs",
       "description": "Asynchronous job tracking, history, and status monitoring"
     },
@@ -60,6 +64,10 @@
     {
       "name": "Statistics",
       "description": "System metrics, monitoring endpoints, and API health status"
+    },
+    {
+      "name": "Audit",
+      "description": "Audit logging and change history tracking (Administrator role required)"
     }
   ],
   "paths": {
@@ -307,7 +315,7 @@
         "operationId": "updateSimData",
         "security": [{"bearerAuth": []}],
         "requestBody": {
-          "description": "SIM update request with target MSISDN and new label values",
+          "description": "SIM update request. All updates are queued for processing.",
           "required": true,
           "content": {
             "application/json": {
@@ -316,20 +324,20 @@
               },
               "example": {
                 "msisdn": "972501234567",
-                "label1": "Vehicle-GPS-001",
-                "label2": "Fleet-A",
-                "label3": "Active"
+                "field": "label_1",
+                "value": "Vehicle-GPS-001",
+                "old_value": "OLD_LABEL"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Update request submitted successfully. Returns job ID for tracking.",
+            "description": "Update request queued successfully. Returns task ID for tracking.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UpdateResponse"
+                  "$ref": "#/components/schemas/UpdateSimResponse"
                 }
               }
             }
@@ -406,6 +414,127 @@
           },
           "403": {
             "description": "Forbidden - Administrator or Moderator role required"
+          }
+        }
+      }
+    },
+    "/api/v1/queue/my": {
+      "get": {
+        "tags": ["Queue"],
+        "summary": "Get current user's active tasks",
+        "description": "Returns a list of the authenticated user's pending and processing tasks in the queue.",
+        "operationId": "getMyQueue",
+        "security": [{"bearerAuth": []}],
+        "responses": {
+          "200": {
+            "description": "User's active tasks retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueueTaskList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/v1/queue/task/{id}": {
+      "get": {
+        "tags": ["Queue"],
+        "summary": "Get task status by ID",
+        "description": "Returns detailed information about a specific task in the queue.",
+        "operationId": "getTaskStatus",
+        "security": [{"bearerAuth": []}],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Task ID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task details retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueueTask"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found"
+          }
+        }
+      }
+    },
+    "/api/v1/queue/task/{id}/cancel": {
+      "post": {
+        "tags": ["Queue"],
+        "summary": "Cancel own task",
+        "description": "Cancels a pending or processing task owned by the current user.",
+        "operationId": "cancelTask",
+        "security": [{"bearerAuth": []}],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Task ID to cancel",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task cancelled successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Task cannot be cancelled"
+          },
+          "404": {
+            "description": "Task not found or not owned by user"
+          }
+        }
+      }
+    },
+    "/api/v1/queue/stats": {
+      "get": {
+        "tags": ["Queue"],
+        "summary": "Get queue statistics (Admin)",
+        "description": "Returns overall queue statistics including pending, processing, completed, and failed task counts.\n\n**Required Role**: Administrator",
+        "operationId": "getQueueStats",
+        "security": [{"bearerAuth": []}],
+        "responses": {
+          "200": {
+            "description": "Queue statistics retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueueStats"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden - Administrator role required"
           }
         }
       }
@@ -1450,27 +1579,62 @@
       },
       "UpdateSimRequest": {
         "type": "object",
-        "required": ["msisdn"],
+        "required": ["msisdn", "field", "value"],
+        "description": "Request to update a SIM card field. All updates are processed through the queue for load control and audit logging.",
         "properties": {
           "msisdn": {
             "type": "string",
             "description": "Target SIM MSISDN (international format)",
             "example": "972501234567"
           },
-          "label1": {
+          "cli": {
             "type": "string",
-            "maxLength": 100,
-            "description": "New value for CUSTOMER_LABEL_1"
+            "description": "CLI identifier (optional, will be resolved from MSISDN)"
           },
-          "label2": {
+          "field": {
             "type": "string",
-            "maxLength": 100,
-            "description": "New value for CUSTOMER_LABEL_2"
+            "description": "Field to update",
+            "enum": ["label_1", "label_2", "label_3", "CUSTOMER_LABEL_1", "CUSTOMER_LABEL_2", "CUSTOMER_LABEL_3"],
+            "example": "label_1"
           },
-          "label3": {
+          "value": {
             "type": "string",
             "maxLength": 100,
-            "description": "New value for CUSTOMER_LABEL_3"
+            "description": "New value for the field",
+            "example": "Vehicle-GPS-001"
+          },
+          "old_value": {
+            "type": "string",
+            "description": "Previous value (for audit logging)"
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Optional client-side request ID for tracking"
+          }
+        }
+      },
+      "UpdateSimResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "Whether the request was accepted"
+          },
+          "queued": {
+            "type": "boolean",
+            "description": "Always true - all updates go through queue"
+          },
+          "task_id": {
+            "type": "integer",
+            "description": "Queue task ID for tracking"
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Request ID for client-side tracking"
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message if request failed"
           }
         }
       },
@@ -1730,6 +1894,137 @@
             "type": "string",
             "description": "Error message describing what went wrong",
             "example": "Invalid request parameters"
+          }
+        }
+      },
+      "QueueTask": {
+        "type": "object",
+        "description": "Task in the processing queue",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Unique task identifier",
+            "example": 123
+          },
+          "type": {
+            "type": "string",
+            "enum": ["LABEL_UPDATE", "STATUS_CHANGE"],
+            "description": "Type of operation"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["PENDING", "PROCESSING", "COMPLETED", "FAILED", "CANCELLED"],
+            "description": "Current task status"
+          },
+          "priority": {
+            "type": "string",
+            "enum": ["LOW", "NORMAL", "HIGH", "CRITICAL"],
+            "description": "Task priority level"
+          },
+          "target_msisdn": {
+            "type": "string",
+            "description": "Target SIM card MSISDN",
+            "example": "972501234567"
+          },
+          "target_cli": {
+            "type": "string",
+            "description": "Target SIM card CLI"
+          },
+          "label_field": {
+            "type": "string",
+            "description": "Label field being updated (for LABEL_UPDATE tasks)",
+            "example": "label_1"
+          },
+          "label_value": {
+            "type": "string",
+            "description": "New label value"
+          },
+          "old_status": {
+            "type": "string",
+            "description": "Previous status (for STATUS_CHANGE tasks)"
+          },
+          "new_status": {
+            "type": "string",
+            "description": "Target status (for STATUS_CHANGE tasks)"
+          },
+          "attempt": {
+            "type": "integer",
+            "description": "Current attempt number",
+            "example": 1
+          },
+          "max_attempts": {
+            "type": "integer",
+            "description": "Maximum retry attempts",
+            "example": 3
+          },
+          "last_error": {
+            "type": "string",
+            "description": "Last error message if failed"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Task creation timestamp"
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Task completion timestamp"
+          },
+          "username": {
+            "type": "string",
+            "description": "User who created the task"
+          }
+        }
+      },
+      "QueueTaskList": {
+        "type": "object",
+        "properties": {
+          "tasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QueueTask"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total number of tasks"
+          }
+        }
+      },
+      "QueueStats": {
+        "type": "object",
+        "description": "Queue statistics",
+        "properties": {
+          "pending": {
+            "type": "integer",
+            "description": "Tasks waiting to be processed",
+            "example": 5
+          },
+          "processing": {
+            "type": "integer",
+            "description": "Tasks currently being processed",
+            "example": 1
+          },
+          "completed": {
+            "type": "integer",
+            "description": "Successfully completed tasks",
+            "example": 150
+          },
+          "failed": {
+            "type": "integer",
+            "description": "Failed tasks",
+            "example": 3
+          },
+          "cancelled": {
+            "type": "integer",
+            "description": "Cancelled tasks",
+            "example": 2
+          },
+          "today_total": {
+            "type": "integer",
+            "description": "Total tasks created today",
+            "example": 25
           }
         }
       }

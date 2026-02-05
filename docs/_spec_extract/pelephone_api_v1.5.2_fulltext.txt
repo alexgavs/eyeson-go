@@ -1,0 +1,997 @@
+P a g e  | 1 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+EYESONT – API REFERENCE 
+ 
+ 
+ 
+ 
+ 
+Document Version 1.5.2 
+Date 2019/11/70  
+Status Commercial 
+ 
+ 
+   
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+  
+
+P a g e  | 2 
+ 
+ 
+ 
+Table of Contents  
+API Overview ................................ ................................ ................................ ................................ ...... 3 
+1.1 Implementation Options ................................ ................................ ................................ .............. 3 
+1.2 Login ................................ ................................ ................................ ................................ .............. 3 
+1.3 Subscriber Management ................................ ................................ ................................ .............. 3 
+1.4 Acronyms ................................ ................................ ................................ ................................ ....... 3 
+API Reference ................................ ................................ ................................ ................................ ..... 5 
+2.1 Request/Response Base Elements ................................ ................................ ...............................  5 
+2.2 Specification Conventions ................................ ................................ ................................ ........... 5 
+Login ................................ ................................ ................................ ................................ .................. 6 
+3.1 Login API ................................ ................................ ................................ ................................ ....... 6 
+Request Method ................................................................................................................................................. 6 
+Response Method ............................................................................................................................................... 6 
+3.2 Logout API ................................ ................................ ................................ ................................ ..... 7 
+Request Method ................................................................................................................................................. 7 
+Response Method ............................................................................................................................................... 7 
+Subscriber Management ................................ ................................ ................................ ..................... 8 
+4.1 getProvisioningParameterList API ................................ ................................ ..............................  8 
+Request Method ................................................................................................................................................. 8 
+Response Method ............................................................................................................................................... 9 
+4.2 getProvisioningData API ................................ ................................ ................................ ............ 11 
+Request Method ............................................................................................................................................... 11 
+Response Method ............................................................................................................................................. 13 
+4.3 getProvisioningJobList API ................................ ................................ ................................ ........ 14 
+Request Method ............................................................................................................................................... 14 
+Response Method ............................................................................................................................................. 16 
+4.4 updateProvisioningData API ................................ ................................ ................................ ..... 18 
+Request Method ............................................................................................................................................... 18 
+Response Method ............................................................................................................................................. 21 
+ 
+  
+
+P a g e  | 3 
+ 
+ 
+ 
+API Overview 
+1.1 Implementation Options 
+ 
+This document describes a set of web-service RESTful Post APIs between the client applications 
+and EyesOnT. It provides HTTP/s / JSON interface specifications for a set of functions that enable: 
+ 
+• Login – Opens the session between the requester and the EyesOnT API interface. 
+• Subscriber Management – receive Provisioning configuration of Subscribers, and 
+perform Provisioning configuration. 
+1.2 Login 
+ 
+EyesOnT requires login authentication in order to access the sytem’s API’s. Once authentication 
+is performed a session is maintained, allowing access to additional API’s. 
+ 
+EyesOnT includes 2 access API’s: 
+    Login API – an API to open a session between the application and EyesOnT’s server in order to 
+access additional APIs. 
+    Logout API – an API to close an already open session. 
+1.3 Subscriber Management 
+ 
+EyesOnT provides the capabilities to view and manage Subscriber provisioning configuration. 
+The Provisioning capabilities that are currently supported are: 
+• Rate Plan Management – ability to change the rate plan of a Subscriber. 
+• Subscriber status – ability to change the state of a subscriber SIM. 
+• Replace SIM – ability to swap a SIM and connect a new SIM(ICCID) to a Subscriber. 
+• Manage Answering Machine – add, remove or clear the Subscriber answering machine. 
+• APN Management – ability to remove, add or change a Subscriber APN. 
+• Description – ability to define a Subscriber Description. 
+1.4 Acronyms 
+ 
+Acronym Definition  
+API Application Programming Interface  
+APN Access Point Name  
+HTTP/S Hypertext Transfer Protocol/Secure  
+ICCID Integrated Circuit Card Identifier  
+IMSI International Mobile Subscriber Identity  
+JSON Javascript Object Notation  
+MCC Mobile Country Code  
+MNC Mobile Network Code  
+MNO Mobile Network Operator  
+
+P a g e  | 4 
+ 
+ 
+ 
+Acronym Definition  
+MSISDN Mobile Station International Subscriber 
+Directory Number 
+ 
+SIM Subscriber Identification Module  
+SMS Short Messaging Service  
+
+P a g e  | 5 
+ 
+ 
+ 
+API Reference 
+The following section provides a detailed reference of the EyesOnT API.  
+2.1    Request/Response Base Elements 
+ 
+Each Request requires authentication, and the Requests and Reponses are accessed and 
+transmitted via a JSON Post RESTful API over HTTP/S.  
+ 
+The API schemas contain two abstract base elements from which all the API requests and 
+responses are derived:  
+“RequestBase” for requests, identifying the scope of the request   
+“ResponseBase” for responses, including success/failure status. 
+ 
+2.2    Specification Conventions 
+ 
+In the following API specification, the Presence column indicates whether the API element is 
+mandatory. 
+ 
+Presence and Multiplicity Symbol Legend 
+Symbol Semantics 
+Presence:  
+M The element presence is mandatory. 
+O The element presence is optional. 
+ 
+  
+
+P a g e  | 6 
+ 
+ 
+ 
+Login 
+The Following is a list of APIs’ related to the Login process 
+ 
+Section API Name 
+3.1     Login API 
+3.2     Logout API 
+ 
+3.1     Login API 
+Request Method 
+The Login API sends a request for the session creation in the system.  
+ 
+Request Example: 
+https://eot-portal.pelephone.co.il:8888/ipa/apis/json/general/login 
+ 
+Request Parameters 
+Element Type Presenc
+e 
+Annotation 
+Username string M The username of the user requesting to open the 
+session. 
+Password string M The password of the user requesting to open the 
+session. 
+ 
+ 
+Response Method 
+LoginResponse is a response to a Login Request call. 
+The response includes an answer of success or failure to Login and open a session. 
+ 
+• Successful Response Example 
+ 
+ 
+ 
+{ 
+"username": "johndoe", 
+"password": "Kuku12#" 
+} 
+{ 
+    "result": "SUCCESS", 
+    "message": null, 
+    "userId": 22358, 
+    "userType": "User", 
+    "userGroupId": 22941, 
+    "userLevel": "User" 
+} 
+
+P a g e  | 7 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+• Unsuccessful Response Example 
+ 
+ 
+3.2     Logout API 
+Request Method 
+The Logout API sends a request to close and already existing session.  
+ 
+Request Example: 
+https://eot-portal.pelephone.co.il:8888/ipa/apis/json/general/logout 
+ 
+Response Method 
+LogoutResponse is a response to a Logout Request call. 
+The response includes an answer of success or failure to Login and open a session. 
+ 
+• Successful Response Example 
+ 
+ 
+ 
+• Unsuccessful Response Example 
+ 
+ 
+{ 
+    "result": "REJECTED", 
+    "message": "Invalid Username or password", 
+    "userId": 0, 
+    "userType": null, 
+    "userGroupId": null, 
+    "userLevel": null 
+} 
+{ 
+    "result": "SUCCESS", 
+    "message": null 
+} 
+{"i_result":-1,"w_misc_msg":"Session is not valid"} 
+
+P a g e  | 8 
+ 
+ 
+ 
+Subscriber Management 
+ 
+The Following is a list of APIs’ related to Subscriber Management. 
+ 
+Section API Name 
+4.1 getProvisioningParameterList API 
+0  
+getProvisioningData API 
+4.3 getProvisioningJobList API 
+4.4 UpdateProvisioningData API 
+ 
+4.1 getProvisioningParameterList API 
+Request Method 
+The getProvisioningParameterList API sends a request for the list of provisioning parameters 
+that the user has access to. In addition, the API returns the permission level of each parameter. 
+The Possible permission levels are: 
+1 - READ-ONLY - means the user has read only access and cannot edit the value of this field. 
+2 - READ-WRITE - means the user has read write access and the parameter can be edited. 
+3 - READ-WRITE_FROM_LIST - means that the user has read write access but can only edit from the 
+values listed in the api call. 
+  
+Request JSON schema : 
+ 
+Request Example: 
+https://eot-portal.pelephone.co.il:8888/ipa/apis/json/provisioning/getProvisioningParameterList 
+ 
+ 
+  
+GetProvisioningParameterListRequest : { 
+  "type" : "object", 
+  "properties" : { 
+    "username" : { 
+      "type" : "string" 
+    }, 
+    "password" : { 
+      "type" : "string" 
+    } 
+  } 
+} 
+{ 
+"username": "johndoe", 
+"password": "Kuku12#" 
+} 
+
+P a g e  | 9 
+ 
+ 
+ 
+ 
+Response Method 
+getProvisioningParameterList Response is a response to an getProvisioningParameterList 
+Request call. 
+The response includes a list of parameters, including their Name, Alias , Permission_Level and 
+Available_values (if the permission level Is READ-WRITE_FROM_LIST).  
+ 
+Response Example 
+ 
+GetProvisioningParameterListResponse : { 
+  "type" : "object", 
+  "properties" : { 
+    "result" : { 
+      "type" : "string", 
+      "enum" : [ "SUCCESS", "REJECTED", "INVALID_REQ", "MISSING_ENTITY", "FAILED" ] 
+    }, 
+    "message" : { 
+      "type" : "string" 
+    }, 
+    "parameters" : { 
+      "type" : "array", 
+      "items" : { 
+        "type" : "object", 
+        "properties" : { 
+          "fieldName" : { 
+            "type" : "string" 
+          }, 
+          "permissionLevel" : { 
+            "type" : "string" 
+          }, 
+          "alias" : { 
+            "type" : "string" 
+          }, 
+          "availableValues" : { 
+            "type" : "array", 
+            "items" : { 
+              "type" : "object", 
+              "properties" : { 
+                "value" : { 
+                  "type" : "integer" 
+                }, 
+                "name" : { 
+                  "type" : "string" 
+                }, 
+                "desc" : { 
+                  "type" : "string" 
+                } 
+              } 
+            } 
+          } 
+        } 
+      } 
+    } 
+  } 
+} 
+
+P a g e  | 10 
+ 
+ 
+ 
+ 
+ 
+Response Parameters 
+Element Type Attribute
+s 
+Presence Annotation 
+fieldName String   Name of the Provisioning 
+parameter field 
+permissionLevel String   Permission level. 
+alias String   Alias of the Provisioning 
+parameter field 
+availableValues Enumeration   See enumeration below 
+ 
+availableValues Enumeration  
+Enumeration Value Description 
+value Code of the available value 
+name Name of the available value 
+desc Description of the available value. 
+ 
+  
+
+P a g e  | 11 
+ 
+ 
+ 
+4.2 getProvisioningData API 
+Request Method 
+The getProvisioningData API sends a request for the list of Subscribers and their provisioning 
+configuration.  
+ 
+Request JSON schema : 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+GetProvisioningDataRequest : { 
+  "type" : "object", 
+  "properties" : { 
+    "username" : { 
+      "type" : "string" 
+    }, 
+    "password" : { 
+      "type" : "string" 
+    }, 
+    "start" : { 
+      "type" : "integer" 
+    }, 
+    "limit" : { 
+      "type" : "integer" 
+    }, 
+    "sortDirection" : { 
+      "type" : "string", 
+      "enum" : [ "ASC", "DESC" ] 
+    }, 
+    "search" : { 
+      "type" : "array", 
+      "items" : { 
+        "type" : "object", 
+        "properties" : { 
+          "fieldName" : { 
+            "type" : "string" 
+          }, 
+          "fieldValue" : { 
+            "type" : "string" 
+          } 
+        } 
+      } 
+    }, 
+    "sortBy" : { 
+      "type" : "string" 
+    } 
+  } 
+} 
+
+P a g e  | 12 
+ 
+ 
+ 
+ 
+ 
+Request Example: 
+https://eot-portal.pelephone.co.il:8888/ipa/apis/json/provisioning/getProvisioningData 
+ 
+ 
+Request Parameters 
+Element Type Presence Annotation 
+sortBy string O fieldName to sort result, retrieved from 
+getProvisioningParameterList, by default is Null. 
+sortDirection string O Direction of Sorting ASC/DESC 
+start integer O Pagination page start 
+limit integer O Pagination - Number of items to retrieve from 
+start. 
+search Enumeration O  
+ 
+searchTerm Enumaration 
+ 
+Element Type Presence Annotation 
+fieldName string O fieldName to define the search parameter. 
+fieldValue string O Value to be searched. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+{ 
+  "username": "johndoe", 
+  "password": "Kuku12#", 
+  "limit": 5, 
+  "search": [ 
+    { 
+      "fieldName": "MSISDN", 
+      "fieldValue": "0506669999" 
+    } 
+  ] 
+} 
+
+P a g e  | 13 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Response Method 
+GetProvisioningData Response is a response to a GetProvisioningData Request call. 
+The response includes a list of Subscribers and their configuration values.  
+Response Example 
+ 
+ 
+Response Parameters 
+Element Type Attributes Presence Annotation 
+count integer   Number of Elements returned 
+fieldNames array   List of fields to be returned for each 
+element 
+data array   Values for each of the fields 
+returned in fieldNames, for each 
+Subscriber 
+ 
+ 
+ 
+ 
+ 
+  
+GetProvisioningDataResponse : { 
+  "type" : "object", 
+  "properties" : { 
+    "result" : { 
+      "type" : "string", 
+      "enum" : [ "SUCCESS", "REJECTED", "INVALID_REQ", "MISSING_ENTITY", "FAILED" ] 
+    }, 
+    "message" : { 
+      "type" : "string" 
+    }, 
+    "count" : { 
+      "type" : "integer" 
+    }, 
+    "fieldNames" : { 
+      "type" : "array", 
+      "items" : { 
+        "type" : "string" 
+      } 
+    }, 
+    "data" : { 
+      "type" : "array", 
+      "items" : { 
+        "type" : "object" 
+      } 
+    } 
+  } 
+} 
+
+P a g e  | 14 
+ 
+ 
+ 
+ 
+4.3  getProvisioningJobList API 
+Request Method 
+The getProvisioningJobList API sends a request for the list of Provisioning Jobs, including 
+requested actions and status.  
+Request JSON schema : 
+ 
+ 
+Request Example: 
+https://eot-portal.pelephone.co.il:8888/ipa/apis/json/provisioning/getProvisioningJobList 
+ 
+ 
+ 
+ 
+ 
+ 
+GetProvisioningJobListRequest : { 
+  "type" : "object", 
+  "properties" : { 
+    "username" : { 
+      "type" : "string" 
+    }, 
+    "password" : { 
+      "type" : "string" 
+    }, 
+    "start" : { 
+      "type" : "integer" 
+    }, 
+    "limit" : { 
+      "type" : "integer" 
+    }, 
+    "sortDirection" : { 
+      "type" : "string", 
+      "enum" : [ "ASC", "DESC" ] 
+    }, 
+    "jobId" : { 
+      "type" : "integer" 
+    }, 
+    "jobStatus" : { 
+      "type" : "string" 
+    }, 
+    "sortBy" : { 
+      "type" : "string", 
+      "enum" : [ "JOB_ID", "LAST_ACTION_TIME" ] 
+    } 
+  } 
+} 
+{ 
+  "username": "johndoe", 
+  "password": "Kuku12#", 
+  "jobStatus": "FAILED" 
+} 
+
+P a g e  | 15 
+ 
+ 
+ 
+ 
+ 
+ 
+Request Parameters 
+Element Type Presence Annotation 
+sortBy string O fieldName to sort result, retrieved from 
+getProvisioningParameterList, by default is Null. 
+sortDirection string O Direction of Sorting ASC/DESC 
+start integer O Pagination page start 
+limit integer O Pagination - Number of items to retrieve from 
+start. 
+jobId integer O Id of the requested Job 
+jobStatus string O Status of the requested Jobs. 
+ 
+  
+
+P a g e  | 16 
+ 
+ 
+ 
+Response Method 
+getProvisioningJobList Response is a response to a getProvisioningJobList Request call. 
+The response includes a list of Subscribers and their configuration values.  
+Response Example 
+ 
+ 
+GetProvisioningJobListResponse : { 
+  "type" : "object", 
+  "properties" : { 
+    "result" : { 
+      "type" : "string", 
+      "enum" : [ "SUCCESS", "REJECTED", "INVALID_REQ", "MISSING_ENTITY", "FAILED" ] 
+    }, 
+    "message" : { 
+      "type" : "string" 
+    }, 
+    "count" : { 
+      "type" : "integer" 
+    }, 
+    "jobs" : { 
+      "type" : "array", 
+      "items" : { 
+        "type" : "object", 
+        "properties" : { 
+          "jobId" : { 
+            "type" : "integer" 
+          }, 
+          "requestTime" : { 
+            "type" : "number" 
+          }, 
+          "status" : { 
+            "type" : "string" 
+          }, 
+          "lastActionTime" : { 
+            "type" : "number" 
+          }, 
+          "requestedApplication" : { 
+            "type" : "string" 
+          }, 
+          "actions" : { 
+            "type" : "array", 
+            "items" : { 
+              "type" : "object", 
+              "properties" : { 
+                "neId" : { 
+                  "type" : "string" 
+                }, 
+                "status" : { 
+                  "type" : "string" 
+                }, 
+                "completionTime" : { 
+                  "type" : "number" 
+                }, 
+                "requestType" : { 
+                  "type" : "string" 
+                }, 
+                "initialValue" : { 
+                  "type" : "string" 
+                }, 
+                "targetValue" : { 
+                  "type" : "string" 
+                }, 
+                "errorMsg" : { 
+                  "type" : "string" 
+                }, 
+                "errorDesc" : { 
+                  "type" : "string" 
+                } 
+              } 
+            } 
+          } 
+        } 
+      } 
+    } 
+  } 
+} 
+ 
+
+P a g e  | 17 
+ 
+ 
+ 
+ 
+Response Parameters 
+Element Type Attributes Presence Annotation 
+count integer   Number of Elements returned 
+Jobs Enumeration   List of jobs and their actions. 
+ 
+Jobs  Enumaration 
+Element Type Presence Annotation 
+jobId integer  Id of the Job 
+requestTime number  Epoch Time of the Job request  
+status string  Status of the Job 
+lastActionTime number  Epoch Time of last action 
+requestedApplicatio
+n 
+string  fieldName to define the search parameter. 
+Actions Enumeration   
+ 
+Actions  Enumaration 
+Element Type Presence Annotation 
+neId string  MSISDN of requested object 
+status string  Status of the Job Action 
+completionTime string  Epoch time of action completion 
+requestType number  Action type of the request 
+initalValue string  The initial value of the parameter before the 
+change 
+targetValue string  The requested new value of the target 
+parameter 
+errorMsg string   
+errorDesc string   
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+P a g e  | 18 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+4.4 updateProvisioningData API 
+Request Method 
+ 
+The updateProvisioningData API sends a request to change the configuration of a single or 
+multiple Subscribers. 
+ 
+The Action Types are listed in the bellow table. For Action Types that have a predefined list, the 
+list can be returned using the getProvisioningParameterList API call, as described in section 4.1 
+ 
+Supported Request Types  
+actionType  targetValue FieldName Accepted Values Description 
+RATE_PLAN_CHANGE Requested Value RATE_PLAN returned in  
+getProvisioningParameterLis
+t 
+Configure new future Rate Plan.  
+SIM_STATE_CHANGE Requested Value SIM_STATUS_NAME returned in  
+getProvisioningParameterLis
+t 
+Change state of Subscriber.  
+SIM_SWAP Requested Value ICCID Free Text Replace Subscriber ICCID. Free text 
+entry 
+CUSTOMER_LABEL_1 Requested Value N/A Free Text Update the 1st Subscriber Description 
+Field. 
+CUSTOMER_LABEL_2 Requested Value N/A Free Text Update the 2nd Subscriber Description 
+Field. 
+ 
+  
+
+P a g e  | 19 
+ 
+ 
+ 
+Request JSON schema : 
+ 
+Request Parameters 
+Element Type Presence Annotation 
+actionType string M Type of Action requested 
+targetValue string M New value to configure for requested subscribers 
+targetId string O  
+Subscribers Enumeration M List of Subscribers to perform the update on. 
+ 
+  
+UpdateProvisioningDataRequest : { 
+  "type" : "object", 
+  "properties" : { 
+    "username" : { 
+      "type" : "string" 
+    }, 
+    "password" : { 
+      "type" : "string" 
+    }, 
+    "actions" : { 
+      "type" : "array", 
+      "items" : { 
+        "type" : "object", 
+        "properties" : { 
+          "actionType" : { 
+            "type" : "string" 
+          }, 
+          "targetValue" : { 
+            "type" : "string" 
+          }, 
+          "targetId" : { 
+            "type" : "string" 
+          }, 
+          "subscribers" : { 
+            "type" : "array", 
+            "items" : { 
+              "type" : "object", 
+              "properties" : { 
+                "neId" : { 
+                  "type" : "string" 
+                } 
+              } 
+            } 
+          } 
+        } 
+      } 
+    } 
+  } 
+} 
+ 
+
+P a g e  | 20 
+ 
+ 
+ 
+Request Example: 
+https://eot-portal.pelephone.co.il:8888/ipa/apis/json/provisioning/updateProvisioningData 
+Available Parameters 
+Intended 
+State 
+Target 
+Value 
+Description 
+Enable A Target value for Enabling, can also be returned by calling getProvioningParameterList 
+Disable  Dependent on permissions, can also be returned by calling getProvioningParameterList 
+ 
+Examples: 
+ 
+RATE_PLAN_CHANGE 
+ 
+ 
+SIM_STATE_CHANGE 
+ 
+ 
+SIM_SWAP 
+ 
+ 
+ 
+ 
+{ 
+  "username": "johndoe", 
+  "password": "Kuku12#", 
+"actions":[ 
+    { 
+    "actionType": "RATE_PLAN_CHANGE", 
+    "targetValue": "XXX", 
+    "targetId": "" , 
+     "subscribers": [ 
+                         { 
+                             "neId": "0509999999" 
+                         } 
+                    ] 
+    } 
+        ] 
+ 
+} 
+{ 
+  "username": "johndoe", 
+  "password": "Kuku12#", 
+"actions":[ 
+    { 
+    "actionType": "SIM_STATE_CHANGE", 
+    "targetValue": "Suspended", 
+    "targetId": "" , 
+     "subscribers": [ 
+                         { 
+                             "neId": "0509999999" 
+                         } 
+                    ] 
+    } 
+        ] 
+ 
+} 
+{ 
+  "username": "johndoe", 
+  "password": "Kuku12#", 
+"actions":[ 
+    { 
+    "actionType": "SIM_SWAP", 
+    "targetValue": " 899999999999999155", 
+    "targetId": "" , 
+     "subscribers": [ 
+                         { 
+                             "neId": "0509999999" 
+                         } 
+                    ] 
+    } 
+        ] 
+ 
+} 
+
+P a g e  | 21 
+ 
+ 
+ 
+ 
+CUSTOMER_LABEL_1 
+ 
+ 
+CUSTOMER_LABEL_2 
+ 
+ 
+Response Method 
+updateProvisioningDataResponse is a response to an updateProvisioningData Request call. 
+The response includes an answer of success or failure to Login and open a session. 
+Response Example 
+ 
+{ 
+"username": "johndoe", 
+"password": " Kuku12#", 
+"actions":[ 
+    { 
+    "actionType": "CUSTOMER_LABEL_1", 
+    "targetValue": "Johnny’s IPADs", 
+    "targetId": "2" , 
+     "subscribers": [ 
+                         { 
+                             "neId": "0509999999" 
+                         }, 
+                         { 
+                             "neId": "0508888888" 
+                         } 
+                    ] 
+    } 
+        ] 
+ 
+} 
+ 
+{ 
+"username": "johndoe", 
+"password": " Kuku12#", 
+"actions":[ 
+    { 
+    "actionType": "CUSTOMER_LABEL_2", 
+    "targetValue": "Test SIM", 
+    "targetId": "2" , 
+     "subscribers": [ 
+                         { 
+                             "neId": "0509999999" 
+                         } 
+                    ] 
+    } 
+        ] 
+ 
+} 
+ 
+UpdateProvisioningDataResponse : { 
+  "type" : "object", 
+  "properties" : { 
+    "result" : { 
+      "type" : "string", 
+      "enum" : [ "SUCCESS", "REJECTED", "INVALID_REQ", "MISSING_ENTITY", "FAILED" ] 
+    }, 
+    "message" : { 
+      "type" : "string" 
+    }, 
+    "requestId" : { 
+      "type" : "number" 
+    } 
+  } 
+} 

@@ -6,6 +6,7 @@
 package handlers
 
 import (
+	"fmt"
 	"strings"
 
 	"eyeson-go-server/internal/config"
@@ -27,8 +28,16 @@ func JWTMiddleware(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid authorization format"})
 	}
 
-	cfg, _ := config.LoadConfig()
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Server configuration error"})
+	}
+
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		// Pin signing method to HS256.
+		if token.Method != jwt.SigningMethodHS256 {
+			return nil, fmt.Errorf("unexpected signing method: %s", token.Header["alg"])
+		}
 		return []byte(cfg.JwtSecret), nil
 	})
 
@@ -41,13 +50,63 @@ func JWTMiddleware(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid token claims"})
 	}
 
-	userID := uint(claims["user_id"].(float64))
-	username := claims["username"].(string)
+	userID, err := claimUint(claims, "user_id")
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid token claims"})
+	}
+	username, err := claimString(claims, "username")
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid token claims"})
+	}
+	role, _ := claimString(claims, "role")
+	sessionID, _ := claimString(claims, "session_id")
 
+	// Canonical locals for handlers
 	c.Locals("user_id", userID)
 	c.Locals("username", username)
+	c.Locals("role", role)
+	c.Locals("session_id", sessionID)
+
+	// Backward/forward compat: audit service expects Locals("user") to contain jwt.MapClaims
+	c.Locals("user", claims)
 
 	return c.Next()
+}
+
+func claimString(claims jwt.MapClaims, key string) (string, error) {
+	v, ok := claims[key]
+	if !ok {
+		return "", fmt.Errorf("missing claim %s", key)
+	}
+	s, ok := v.(string)
+	if !ok {
+		return "", fmt.Errorf("claim %s is not string", key)
+	}
+	return s, nil
+}
+
+func claimUint(claims jwt.MapClaims, key string) (uint, error) {
+	v, ok := claims[key]
+	if !ok {
+		return 0, fmt.Errorf("missing claim %s", key)
+	}
+	// jwt.MapClaims comes from JSON decoding; numbers are float64.
+	if f, ok := v.(float64); ok {
+		if f < 0 {
+			return 0, fmt.Errorf("claim %s negative", key)
+		}
+		return uint(f), nil
+	}
+	if i, ok := v.(int); ok {
+		if i < 0 {
+			return 0, fmt.Errorf("claim %s negative", key)
+		}
+		return uint(i), nil
+	}
+	if u, ok := v.(uint); ok {
+		return u, nil
+	}
+	return 0, fmt.Errorf("claim %s has unsupported type", key)
 }
 
 // RequireRole middleware checks if user has a specific role
@@ -90,26 +149,5 @@ func RequireAnyRole(allowedRoles ...string) fiber.Handler {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
 			"error": "Access denied: insufficient permissions",
 		})
-	}
-}
-
-// RequirePermission middleware checks if user has a specific permission
-func RequirePermission(permission string) fiber.Handler {
-	return func(c *fiber.Ctx) error {
-		userID := c.Locals("user_id").(uint)
-
-		var user models.User
-		if err := database.DB.Preload("Role").First(&user, userID).Error; err != nil {
-			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "User not found"})
-		}
-
-		// Check if role has the required permission
-		if !strings.Contains(user.Role.Permissions, permission) {
-			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
-				"error": "Access denied: missing required permission",
-			})
-		}
-
-		return c.Next()
 	}
 }

@@ -6,11 +6,12 @@
 package handlers
 
 import (
-	"eyeson-go-server/internal/database"
-	"eyeson-go-server/internal/models"
 	"log"
 	"sync"
 	"time"
+
+	"eyeson-go-server/internal/database"
+	"eyeson-go-server/internal/models"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -28,14 +29,6 @@ var (
 	statsCacheMutex sync.Mutex
 	statsLastUpdate time.Time
 )
-
-// InvalidateStatsCache сбрасывает кэш статистики
-func InvalidateStatsCache() {
-	statsCacheMutex.Lock()
-	defer statsCacheMutex.Unlock()
-	statsCache = nil
-	log.Println("[Stats] Cache invalidated")
-}
 
 func GetStats(c *fiber.Ctx) error {
 	statsCacheMutex.Lock()

@@ -6,16 +6,29 @@
 package routes
 
 import (
+	"strings"
+
+	"eyeson-go-server/internal/config"
 	"eyeson-go-server/internal/handlers"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
+	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/gofiber/fiber/v2/middleware/requestid"
 )
 
-func SetupRoutes(app *fiber.App) {
+func SetupRoutes(app *fiber.App, cfg *config.Config) {
+	app.Use(recover.New())
+	app.Use(requestid.New())
+
+	allowOrigins := strings.TrimSpace(cfg.CorsAllowOrigins)
+	if allowOrigins == "" {
+		allowOrigins = "http://localhost:5000,http://127.0.0.1:5000"
+	}
+
 	app.Use(cors.New(cors.Config{
-		AllowOrigins:     "*",
+		AllowOrigins:     allowOrigins,
 		AllowMethods:     "GET,POST,PUT,DELETE,OPTIONS",
 		AllowHeaders:     "Origin, Content-Type, Accept, Authorization",
 		AllowCredentials: false,
@@ -62,7 +75,7 @@ func SetupRoutes(app *fiber.App) {
 	simsWrite := sims.Group("")
 	simsWrite.Use(handlers.RequireAnyRole("Administrator", "Moderator"))
 	simsWrite.Post("/update", handlers.UpdateSim)
-	simsWrite.Post("/status", handlers.ChangeStatus)         // Single SIM status change with queue fallback
+	simsWrite.Post("/status", handlers.ChangeStatus) // Single SIM status change with queue fallback
 	simsWrite.Post("/bulk-status", handlers.BulkChangeStatus)
 
 	// Stats routes (protected - All roles)
@@ -75,9 +88,24 @@ func SetupRoutes(app *fiber.App) {
 	apiStatus.Use(handlers.JWTMiddleware)
 	apiStatus.Use(handlers.RequireRole("Administrator"))
 	apiStatus.Get("/", handlers.GetAPIStatus)
+	apiStatus.Get("/diagnostics", handlers.GetAPIDiagnostics)
 
 	// API Connection Toggle (Admin only)
 	api.Post("/api-connection", handlers.JWTMiddleware, handlers.RequireRole("Administrator"), handlers.ToggleConnection)
+
+	// Upstream selection (Admin only) - persisted, applies after restart
+	upstream := api.Group("/upstream")
+	upstream.Use(handlers.JWTMiddleware)
+	upstream.Use(handlers.RequireRole("Administrator"))
+	upstream.Get("", handlers.GetUpstream)
+	upstream.Put("", handlers.SetUpstream)
+
+	// Manual sync (Admin only) - pulls latest data from Pelephone into local DB
+	sync := api.Group("/sync")
+	sync.Use(handlers.JWTMiddleware)
+	sync.Use(handlers.RequireRole("Administrator"))
+	sync.Get("/status", handlers.GetManualSyncStatus)
+	sync.Post("/full", handlers.TriggerManualFullSync)
 
 	// Jobs routes (protected - All roles)
 	jobs := api.Group("/jobs")
@@ -91,46 +119,48 @@ func SetupRoutes(app *fiber.App) {
 	queue := api.Group("/queue")
 	queue.Use(handlers.JWTMiddleware)
 	// User's own queue operations
-	queue.Get("/my", handlers.GetMyQueue)                           // Current user's active tasks
-	queue.Get("/my/history", handlers.GetMyQueueHistory)            // User's completed tasks history
-	queue.Get("/task/:id", handlers.GetTaskStatus)                  // Get task by ID
-	queue.Get("/request/:request_id", handlers.GetTaskByRequestID)  // Get task by request ID
-	queue.Get("/batch/:batch_id", handlers.GetBatchTasks)           // Get all tasks in batch
+	queue.Get("/my", handlers.GetMyQueue)                             // Current user's active tasks
+	queue.Get("/my/history", handlers.GetMyQueueHistory)              // User's completed tasks history
+	queue.Get("/task/:id", handlers.GetTaskStatus)                    // Get task by ID
+	queue.Get("/request/:request_id", handlers.GetTaskByRequestID)    // Get task by request ID
+	queue.Get("/batch/:batch_id", handlers.GetBatchTasks)             // Get all tasks in batch
 	queue.Get("/batch/:batch_id/progress", handlers.GetBatchProgress) // Get batch progress
-	queue.Post("/task/:id/cancel", handlers.CancelTask)             // Cancel own task
+	queue.Post("/task/:id/cancel", handlers.CancelTask)               // Cancel own task
 
 	// Admin queue operations
 	queueAdmin := queue.Group("")
 	queueAdmin.Use(handlers.RequireAnyRole("Administrator"))
-	queueAdmin.Get("/all", handlers.GetAllPendingTasks)             // All pending tasks
-	queueAdmin.Get("/stats", handlers.GetQueueStats)                // Queue statistics
+	queueAdmin.Get("/all", handlers.GetAllPendingTasks)                 // All pending tasks
+	queueAdmin.Get("/stats", handlers.GetQueueStats)                    // Queue statistics
 	queueAdmin.Post("/task/:id/cancel-admin", handlers.CancelTaskAdmin) // Admin cancel any task
-	queueAdmin.Post("/task/:id/retry", handlers.RetryTask)          // Retry failed task
-	queueAdmin.Delete("/cleanup", handlers.CleanupOldTasks)         // Cleanup old completed tasks
+	queueAdmin.Post("/task/:id/retry", handlers.RetryTask)              // Retry failed task
+	queueAdmin.Delete("/cleanup", handlers.CleanupOldTasks)             // Cleanup old completed tasks
 
 	// Audit log routes (protected - Admin only)
 	audit := api.Group("/audit")
 	audit.Use(handlers.JWTMiddleware)
 	audit.Use(handlers.RequireAnyRole("Administrator"))
-	audit.Get("/", handlers.GetAuditLogs)                           // List audit logs with filtering
-	audit.Get("/stats", handlers.GetAuditStats)                     // Audit statistics
-	audit.Get("/entity/:type/:id", handlers.GetEntityHistory)       // Entity history
-	audit.Get("/sim/:msisdn", handlers.GetSIMHistory)               // SIM-specific history
-	audit.Get("/user/:id/activity", handlers.GetUserActivity)       // User activity
-	audit.Get("/export", handlers.ExportAuditLogs)                  // Export to CSV
-	audit.Delete("/cleanup", handlers.CleanupOldAuditLogs)          // Cleanup old logs
+	audit.Get("/", handlers.GetAuditLogs)                     // List audit logs with filtering
+	audit.Get("/stats", handlers.GetAuditStats)               // Audit statistics
+	audit.Get("/entity/:type/:id", handlers.GetEntityHistory) // Entity history
+	audit.Get("/sim/:msisdn", handlers.GetSIMHistory)         // SIM-specific history
+	audit.Get("/user/:id/activity", handlers.GetUserActivity) // User activity
+	audit.Get("/export", handlers.ExportAuditLogs)            // Export to CSV
+	audit.Delete("/cleanup", handlers.CleanupOldAuditLogs)    // Cleanup old logs
 
 	// Статические файлы
 	app.Static("/assets", "./static/assets")
 	app.Static("/", "./static")
 
-	// Swagger documentation
-	app.Get("/api/docs", func(c *fiber.Ctx) error {
-		return c.Redirect("/swagger.html")
-	})
-	app.Get("/docs", func(c *fiber.Ctx) error {
-		return c.Redirect("/swagger.html")
-	})
+	// Swagger documentation (dev-only by config)
+	if cfg.EnableSwagger {
+		app.Get("/api/docs", func(c *fiber.Ctx) error {
+			return c.Redirect("/swagger.html")
+		})
+		app.Get("/docs", func(c *fiber.Ctx) error {
+			return c.Redirect("/swagger.html")
+		})
+	}
 
 	// Redirect root to React dashboard
 	app.Get("/", func(c *fiber.Ctx) error {

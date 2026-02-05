@@ -1,0 +1,237 @@
+{
+    "result": "SUCCESS",
+    "parameters": [
+        {
+            "alias": "Customer Name",
+            "fieldName": "CUSTOMER_NAME",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "Sub-Customer Name",
+            "fieldName": "SUB_CUSTOMER_NAME",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "BAN",
+            "fieldName": "CUSTOMER_NUMBER",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "Order Number",
+            "fieldName": "ORDER_NUMBER",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "Subscriber Type",
+            "fieldName": "SIM_TYPE",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "CLI",
+            "fieldName": "CLI",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "MSISDN",
+            "fieldName": "MSISDN",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "ICCID",
+            "fieldName": "SIM_SWAP",
+            "permissionLevel": "READ-WRITE"
+        },
+        {
+            "alias": "IMSI",
+            "fieldName": "IMSI",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "IMEI",
+            "fieldName": "IMEI",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "SIM Status",
+            "availableValues": [
+                {
+                    "desc": "Activated",
+                    "name": "Activated",
+                    "value": 13
+                },
+                {
+                    "desc": "Pre-Activated",
+                    "name": "Pre-Activated",
+                    "value": 16
+                },
+                {
+                    "desc": "Suspended",
+                    "name": "Suspended",
+                    "value": 11
+                },
+                {
+                    "desc": "Terminated",
+                    "name": "Terminated",
+                    "value": 15
+                }
+            ],
+            "fieldName": "SIM_STATUS_CHANGE",
+            "permissionLevel": "READ-WRITE_FROM_LIST"
+        },
+        {
+            "alias": "Rate Plan Name",
+            "fieldName": "RATE_PLAN_CHANGE",
+            "permissionLevel": "READ-WRITE_FROM_LIST"
+        },
+        {
+            "alias": "Rate Plan Name Read Only",
+            "fieldName": "RATE_PLAN_CHANGE_READ_ONLY",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "Rate Plan Full Name",
+            "fieldName": "RATE_PLAN_FULL_NAME",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "Effective Date",
+            "fieldName": "EFFECTIVE_DATE",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "Expiration Date",
+            "fieldName": "EXPIRATION_DATE",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "Future SOC",
+            "fieldName": "FUTURE_SOC",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "Future SOC Name",
+            "fieldName": "FUTURE_SOC_NAME",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "Future Effective Date",
+            "fieldName": "FUTURE_EFFECTIVE_DATE",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "Future Expiration Date",
+            "fieldName": "FUTURE_EXPIRATION_DATE",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "One Time Package",
+            "fieldName": "ONE_TIME_PACKAGE",
+            "permissionLevel": "READ-WRITE_FROM_LIST"
+        },
+        {
+            "alias": "Is Pooled",
+            "fieldName": "IS_POOLED",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "APN Name",
+            "fieldName": "APN_NAME",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "IP Address",
+            "fieldName": "IP1",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "Last Session Time",
+            "fieldName": "LAST_SESSION_TIME",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "in session",
+            "fieldName": "IN_SESSION",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "Monthly data (MB)",
+            "fieldName": "MONTHLY_USAGE_MB",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "Allocated data (MB)",
+            "fieldName": "ALLOCATED_MB",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "Prepaid Data Balance(MB)",
+            "fieldName": "PREPAID_DATA_BALANCE",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "Bundle Utilization",
+            "fieldName": "BUNDLE_UTILIZATION",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "Monthly SMS",
+            "fieldName": "MONTHLY_USAGE_SMS",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "SIM Label",
+            "fieldName": "CUSTOMER_LABEL_1",
+            "permissionLevel": "READ-WRITE"
+        },
+        {
+            "alias": "Group Tag",
+            "fieldName": "CUSTOMER_LABEL_2",
+            "permissionLevel": "READ-WRITE"
+        },
+        {
+            "alias": "Device Tag",
+            "fieldName": "CUSTOMER_LABEL_3",
+            "permissionLevel": "READ-WRITE"
+        },
+        {
+            "alias": "SIM Refresh",
+            "fieldName": "SIM_REFRESH"
+        },
+        {
+            "alias": "Refresh Usages",
+            "availableValues": [
+                {
+                    "desc": "Yes",
+                    "name": "Yes",
+                    "value": 1
+                }
+            ],
+            "fieldName": "REFRESH_SUBSCRIBER_USAGES",
+            "permissionLevel": "READ-WRITE_FROM_LIST"
+        },
+        {
+            "alias": "Data Throttling",
+            "fieldName": "DATA_THROTTLE",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "Subscriber Balance",
+            "fieldName": "peleSubBillStatus"
+        },
+        {
+            "alias": "APN HNAME",
+            "fieldName": "APNHNAME",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "APN IP",
+            "fieldName": "APNHLSFI",
+            "permissionLevel": "READ-ONLY"
+        },
+        {
+            "alias": "IP-2",
+            "fieldName": "IP2",
+            "permissionLevel": "READ-ONLY"
+        }
+    ]
+}

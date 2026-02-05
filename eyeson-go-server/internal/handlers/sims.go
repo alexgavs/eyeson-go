@@ -77,8 +77,23 @@ func GetSims(c *fiber.Ctx) error {
 	// Filter by Search Query
 	if searchQuery != "" {
 		query := "%" + searchQuery + "%"
-		db = db.Where("msisdn LIKE ? OR cli LIKE ? OR imsi LIKE ? OR iccid LIKE ? OR label1 LIKE ? OR label2 LIKE ? OR label3 LIKE ?",
-			query, query, query, query, query, query, query)
+		// IMPORTANT: use GORM naming strategy for column names (acronyms like MSISDN can be
+		// auto-mapped to different DB column names, e.g. m_s_i_s_d_n). Raw column strings
+		// like "msisdn" can silently break search.
+		colMSISDN := database.DB.Config.NamingStrategy.ColumnName("", "MSISDN")
+		colCLI := database.DB.Config.NamingStrategy.ColumnName("", "CLI")
+		colIMSI := database.DB.Config.NamingStrategy.ColumnName("", "IMSI")
+		colICCID := database.DB.Config.NamingStrategy.ColumnName("", "ICCID")
+		colLabel1 := database.DB.Config.NamingStrategy.ColumnName("", "Label1")
+		colLabel2 := database.DB.Config.NamingStrategy.ColumnName("", "Label2")
+		colLabel3 := database.DB.Config.NamingStrategy.ColumnName("", "Label3")
+
+		db = db.Where(
+			fmt.Sprintf("%s LIKE ? OR %s LIKE ? OR %s LIKE ? OR %s LIKE ? OR %s LIKE ? OR %s LIKE ? OR %s LIKE ?",
+				colMSISDN, colCLI, colIMSI, colICCID, colLabel1, colLabel2, colLabel3,
+			),
+			query, query, query, query, query, query, query,
+		)
 	}
 
 	// Count Total
@@ -193,6 +208,25 @@ func UpdateSim(c *fiber.Ctx) error {
 		})
 	}
 
+	// Normalize field name (CUSTOMER_LABEL_1 -> label_1)
+	normalizedField := req.Field
+	if normalizedField == "CUSTOMER_LABEL_1" {
+		normalizedField = "label_1"
+	} else if normalizedField == "CUSTOMER_LABEL_2" {
+		normalizedField = "label_2"
+	} else if normalizedField == "CUSTOMER_LABEL_3" {
+		normalizedField = "label_3"
+	}
+
+	// Get CLI from DB if not provided
+	cli := req.CLI
+	if cli == "" {
+		var sim models.SimCard
+		if err := database.DB.Select("cli").Where("msisdn = ?", req.Msisdn).First(&sim).Error; err == nil {
+			cli = sim.CLI
+		}
+	}
+
 	// Generate request_id if not provided
 	if req.RequestID == "" {
 		req.RequestID = uuid.New().String()
@@ -201,48 +235,20 @@ func UpdateSim(c *fiber.Ctx) error {
 	// Get user context
 	userCtx := services.Audit.GetUserContext(c)
 
-	// Try direct API call first for label updates
-	if req.Field == "label_1" || req.Field == "label_2" || req.Field == "label_3" {
-		startTime := time.Now()
-		resp, err := eyesont.Instance.UpdateSIMLabel(req.CLI, req.Field, req.Value)
-		responseMs := time.Since(startTime).Milliseconds()
+	log.Printf("[UpdateSim] MSISDN=%s, CLI=%s, Field=%s, Value=%s, OldValue=%s",
+		req.Msisdn, cli, normalizedField, req.Value, req.OldValue)
 
-		if err == nil && resp != nil && resp.Result == "succeeded" {
-			// Success - update local DB
-			updateField := "label1"
-			if req.Field == "label_2" {
-				updateField = "label2"
-			} else if req.Field == "label_3" {
-				updateField = "label3"
-			}
-			database.DB.Model(&models.SimCard{}).Where("msisdn = ?", req.Msisdn).Update(updateField, req.Value)
-
-			// Log to audit
-			services.Audit.NewLog(c).
-				Entity(models.EntitySIM, req.Msisdn).
-				Action(models.ActionUpdate).
-				Change(req.Field, req.OldValue, req.Value).
-				Provider(resp.RequestId, responseMs).
-				SaveAsync()
-
-			return c.JSON(UpdateSimResponse{
-				Success:   true,
-				Queued:    false,
-				RequestID: req.RequestID,
-			})
-		}
-
-		// API failed - queue the task
-		log.Printf("[UpdateSim] API call failed, queueing: %v", err)
-	}
+	// QUEUE-FIRST: Все изменения данных на Pelephone API идут через очередь
+	// Это обеспечивает: контроль нагрузки, логирование, регистрацию изменений
+	log.Printf("[UpdateSim] Queueing label update for MSISDN=%s", req.Msisdn)
 
 	// Create queue task
 	task, queueErr := services.Queue.CreateTask(services.CreateTaskRequest{
 		Type:       models.TaskTypeLabelUpdate,
 		Priority:   models.PriorityHigh,
 		MSISDN:     req.Msisdn,
-		CLI:        req.CLI,
-		LabelField: req.Field,
+		CLI:        cli,
+		LabelField: normalizedField,
 		LabelValue: req.Value,
 		UserID:     userCtx.UserID,
 		Username:   userCtx.Username,
@@ -261,7 +267,7 @@ func UpdateSim(c *fiber.Ctx) error {
 	services.Audit.NewLog(c).
 		Entity(models.EntitySIM, req.Msisdn).
 		Action(models.ActionQueueAdd).
-		Change(req.Field, req.OldValue, req.Value).
+		Change(normalizedField, req.OldValue, req.Value).
 		Task(task.ID).
 		Queued().
 		SaveAsync()
@@ -281,6 +287,12 @@ type BulkStatusRequest struct {
 }
 
 type BulkStatusResponse struct {
+	// Compatibility fields for web UI
+	Result string `json:"result,omitempty"`
+	Queued bool   `json:"queued,omitempty"`
+	// Local SyncTask ID for polling (/jobs/local/:id). Optional.
+	RequestID uint `json:"requestId,omitempty"`
+
 	Success     bool   `json:"success"`
 	BatchID     string `json:"batch_id"`
 	TotalItems  int    `json:"total_items"`
@@ -331,58 +343,46 @@ func BulkChangeStatus(c *fiber.Ctx) error {
 	userCtx := services.Audit.GetUserContext(c)
 	batchID := uuid.New().String()
 
-	// Пытаемся выполнить через API напрямую
-	apiItems := make([]map[string]string, 0, len(items))
-	for _, item := range items {
-		apiItems = append(apiItems, map[string]string{
-			"cli":    item.CLI,
-			"msisdn": item.MSISDN,
+	// Всегда ставим в очередь для контроля нагрузки
+	log.Printf("[BulkChangeStatus] Queueing %d items for status change to '%s'", len(items), req.Status)
+
+	// Для одной SIM создаём одиночную задачу
+	if len(items) == 1 {
+		item := items[0]
+		task, queueErr := services.Queue.CreateTask(services.CreateTaskRequest{
+			Type:      models.TaskTypeStatusChange,
+			Priority:  models.PriorityHigh,
+			MSISDN:    item.MSISDN,
+			CLI:       item.CLI,
+			OldStatus: item.OldStatus,
+			NewStatus: req.Status,
+			UserID:    userCtx.UserID,
+			Username:  userCtx.Username,
+			IPAddress: c.IP(),
 		})
-	}
-
-	startTime := time.Now()
-	resp, err := eyesont.Instance.BulkUpdateStatus(apiItems, req.Status)
-	responseMs := time.Since(startTime).Milliseconds()
-
-	if err == nil && resp != nil && resp.Result == "succeeded" {
-		// Успех - обновляем локальную БД
-		for _, item := range items {
-			database.DB.Model(&models.SimCard{}).Where("msisdn = ? OR cli = ?", item.MSISDN, item.CLI).Update("status", req.Status)
-
-			database.DB.Create(&models.SimHistory{
-				MSISDN:    item.MSISDN,
-				Action:    "STATUS_CHANGE",
-				Field:     "status",
-				OldValue:  item.OldStatus,
-				NewValue:  req.Status,
-				Source:    "USER",
-				ChangedBy: userCtx.Username,
+		if queueErr != nil {
+			return c.Status(500).JSON(BulkStatusResponse{
+				Success: false,
+				Error:   "Failed to queue task: " + queueErr.Error(),
 			})
 		}
 
-		// Логируем bulk операцию
-		itemMaps := make([]map[string]string, 0, len(items))
-		for _, item := range items {
-			itemMaps = append(itemMaps, map[string]string{
-				"cli":        item.CLI,
-				"msisdn":     item.MSISDN,
-				"old_status": item.OldStatus,
-			})
-		}
-		services.Audit.LogBulkStatusChange(c, batchID, itemMaps, req.Status, resp.RequestId, responseMs, nil)
+		// Логируем постановку в очередь
+		services.Audit.LogStatusChangeQueued(c, item.CLI, item.MSISDN, item.OldStatus, req.Status, task.ID, nil)
 
 		return c.JSON(BulkStatusResponse{
+			Result:      "queued",
+			Queued:      true,
+			RequestID:   task.ID,
 			Success:     true,
 			BatchID:     batchID,
-			TotalItems:  len(items),
-			DirectCount: len(items),
-			QueuedCount: 0,
+			TotalItems:  1,
+			DirectCount: 0,
+			QueuedCount: 1,
 		})
 	}
 
-	// API недоступен - ставим в очередь как batch
-	log.Printf("[BulkChangeStatus] API failed, queueing %d items: %v", len(items), err)
-
+	// Для нескольких SIM создаём batch задач
 	taskRequests := make([]services.CreateTaskRequest, 0, len(items))
 	for _, item := range items {
 		taskRequests = append(taskRequests, services.CreateTaskRequest{
@@ -398,7 +398,7 @@ func BulkChangeStatus(c *fiber.Ctx) error {
 		})
 	}
 
-	_, _, queueErr := services.Queue.CreateBatch(taskRequests)
+	_, taskIDs, queueErr := services.Queue.CreateBatch(taskRequests)
 	if queueErr != nil {
 		return c.Status(500).JSON(BulkStatusResponse{
 			Success: false,
@@ -406,7 +406,7 @@ func BulkChangeStatus(c *fiber.Ctx) error {
 		})
 	}
 
-	// Логируем
+	// Логируем batch в аудит
 	itemMaps := make([]map[string]string, 0, len(items))
 	for _, item := range items {
 		itemMaps = append(itemMaps, map[string]string{
@@ -415,9 +415,13 @@ func BulkChangeStatus(c *fiber.Ctx) error {
 			"old_status": item.OldStatus,
 		})
 	}
-	services.Audit.LogBulkStatusChange(c, batchID, itemMaps, req.Status, 0, responseMs, fmt.Errorf("queued due to provider error"))
+	services.Audit.LogBulkStatusChange(c, batchID, itemMaps, req.Status, 0, 0, nil)
+
+	log.Printf("[BulkChangeStatus] Created %d tasks in batch %s", len(taskIDs), batchID)
 
 	return c.JSON(BulkStatusResponse{
+		Result:      "queued",
+		Queued:      true,
 		Success:     true,
 		BatchID:     batchID,
 		TotalItems:  len(items),
@@ -468,41 +472,7 @@ func ChangeStatus(c *fiber.Ctx) error {
 
 	userCtx := services.Audit.GetUserContext(c)
 
-	// Пытаемся выполнить запрос к провайдеру
-	startTime := time.Now()
-	resp, err := eyesont.Instance.UpdateSIMStatus(req.CLI, req.NewStatus)
-	responseMs := time.Since(startTime).Milliseconds()
-
-	// Проверяем результат
-	if err == nil && resp != nil && resp.Result == "succeeded" {
-		// Успех - обновляем локальную БД
-		database.DB.Model(&models.SimCard{}).Where("cli = ? OR msisdn = ?", req.CLI, req.MSISDN).Update("status", req.NewStatus)
-
-		// Записываем в историю
-		database.DB.Create(&models.SimHistory{
-			MSISDN:    req.MSISDN,
-			Action:    "STATUS_CHANGE",
-			Field:     "status",
-			OldValue:  req.OldStatus,
-			NewValue:  req.NewStatus,
-			Source:    "USER",
-			ChangedBy: userCtx.Username,
-		})
-
-		// Логируем в аудит
-		services.Audit.LogStatusChange(c, req.CLI, req.MSISDN, req.OldStatus, req.NewStatus, resp.RequestId, responseMs, nil)
-
-		return c.JSON(ChangeStatusResponse{
-			Success:    true,
-			Queued:     false,
-			ProviderID: resp.RequestId,
-			RequestID:  req.RequestID,
-		})
-	}
-
-	// Провайдер недоступен - ставим в очередь
-	log.Printf("[ChangeStatus] API failed, queueing: %v", err)
-
+	// Всегда ставим в очередь для контроля нагрузки
 	task, queueErr := services.Queue.CreateTask(services.CreateTaskRequest{
 		Type:      models.TaskTypeStatusChange,
 		Priority:  models.PriorityHigh,
@@ -517,7 +487,6 @@ func ChangeStatus(c *fiber.Ctx) error {
 	})
 
 	if queueErr != nil {
-		services.Audit.LogStatusChange(c, req.CLI, req.MSISDN, req.OldStatus, req.NewStatus, 0, responseMs, queueErr)
 		return c.Status(500).JSON(ChangeStatusResponse{
 			Success: false,
 			Error:   "Failed to queue operation: " + queueErr.Error(),
@@ -525,7 +494,7 @@ func ChangeStatus(c *fiber.Ctx) error {
 	}
 
 	// Логируем постановку в очередь
-	services.Audit.LogStatusChangeQueued(c, req.CLI, req.MSISDN, req.OldStatus, req.NewStatus, task.ID, err)
+	services.Audit.LogStatusChangeQueued(c, req.CLI, req.MSISDN, req.OldStatus, req.NewStatus, task.ID, nil)
 
 	return c.JSON(ChangeStatusResponse{
 		Success:   true,

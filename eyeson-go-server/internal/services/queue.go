@@ -63,11 +63,16 @@ func (s *QueueService) CreateTask(req CreateTaskRequest) (*models.SyncTaskExtend
 		req.Priority = models.PriorityHigh
 	}
 
+	targetMSISDN := req.MSISDN
+	if targetMSISDN == "" {
+		targetMSISDN = req.CLI
+	}
+
 	task := &models.SyncTaskExtended{
 		Type:         req.Type,
 		Priority:     req.Priority,
 		Status:       models.TaskStatusPending,
-		TargetMSISDN: req.MSISDN,
+		TargetMSISDN: targetMSISDN,
 		TargetCLI:    req.CLI,
 		OldStatus:    req.OldStatus,
 		NewStatus:    req.NewStatus,
@@ -81,13 +86,27 @@ func (s *QueueService) CreateTask(req CreateTaskRequest) (*models.SyncTaskExtend
 		Attempt:      0,
 	}
 
-	// Payload для дополнительных данных
+	// Payload для дополнительных данных (важно: должен быть совместим с worker)
 	payload := map[string]interface{}{
-		"type":       req.Type,
-		"msisdn":     req.MSISDN,
-		"cli":        req.CLI,
-		"old_status": req.OldStatus,
-		"new_status": req.NewStatus,
+		"type": req.Type,
+	}
+	// Worker ожидает для смены статуса: {"msisdns": [...], "status": "..."}
+	if req.Type == models.TaskTypeStatusChange || req.Type == models.TaskTypeBulkChange {
+		id := req.MSISDN
+		if id == "" {
+			id = req.CLI
+		}
+		payload["msisdns"] = []string{id}
+		payload["status"] = req.NewStatus
+		payload["old_status"] = req.OldStatus
+		payload["new_status"] = req.NewStatus
+		payload["cli"] = req.CLI
+		payload["msisdn"] = req.MSISDN
+	} else {
+		payload["msisdn"] = req.MSISDN
+		payload["cli"] = req.CLI
+		payload["old_status"] = req.OldStatus
+		payload["new_status"] = req.NewStatus
 	}
 	payloadJSON, _ := json.Marshal(payload)
 	task.Payload = string(payloadJSON)
@@ -175,7 +194,7 @@ func (s *QueueService) GetPendingTasks(limit int) ([]models.SyncTaskExtended, er
 
 	err := database.DB.
 		Where("status = ? AND (next_run_at IS NULL OR next_run_at <= ?)",
-			models.TaskStatusPending, now).
+							models.TaskStatusPending, now).
 		Order("priority ASC, created_at ASC"). // Сначала высокий приоритет (меньше число)
 		Limit(limit).
 		Find(&tasks).Error
@@ -261,38 +280,6 @@ func (s *QueueService) GetBatchProgress(batchID string) (*models.BatchProgress, 
 }
 
 // ─── ОБНОВЛЕНИЕ ЗАДАЧ ──────────────────────────────────────
-
-// MarkProcessing помечает задачу как обрабатываемую
-func (s *QueueService) MarkProcessing(taskID uint) error {
-	now := time.Now()
-	result := database.DB.Model(&models.SyncTaskExtended{}).
-		Where("id = ? AND status = ?", taskID, models.TaskStatusPending).
-		Updates(map[string]interface{}{
-			"status":     models.TaskStatusProcessing,
-			"started_at": &now,
-			"updated_at": now,
-		})
-
-	if result.RowsAffected == 0 {
-		return fmt.Errorf("task already processing or not found")
-	}
-	return result.Error
-}
-
-// MarkCompleted помечает задачу как выполненную
-func (s *QueueService) MarkCompleted(taskID uint, providerReqID int, durationMs int64) error {
-	now := time.Now()
-	return database.DB.Model(&models.SyncTaskExtended{}).
-		Where("id = ?", taskID).
-		Updates(map[string]interface{}{
-			"status":              models.TaskStatusCompleted,
-			"completed_at":        &now,
-			"duration_ms":         durationMs,
-			"provider_request_id": providerReqID,
-			"updated_at":          now,
-			"last_error":          "",
-		}).Error
-}
 
 // MarkFailed помечает задачу как неудачную с retry логикой
 func (s *QueueService) MarkFailed(task *models.SyncTaskExtended, errMsg string) error {
@@ -380,27 +367,6 @@ func (s *QueueService) GetStats() (*models.QueueStats, error) {
 	database.DB.Model(&models.SyncTaskExtended{}).Where("created_at >= ?", today).Count(&stats.TodayTotal)
 
 	return stats, nil
-}
-
-// HasPendingTasks проверяет есть ли ожидающие задачи
-func (s *QueueService) HasPendingTasks() bool {
-	var count int64
-	database.DB.Model(&models.SyncTaskExtended{}).
-		Where("status IN ?", []models.TaskStatus{
-			models.TaskStatusPending,
-			models.TaskStatusProcessing,
-		}).
-		Count(&count)
-	return count > 0
-}
-
-// GetPendingCount возвращает количество ожидающих задач
-func (s *QueueService) GetPendingCount() int64 {
-	var count int64
-	database.DB.Model(&models.SyncTaskExtended{}).
-		Where("status = ?", models.TaskStatusPending).
-		Count(&count)
-	return count
 }
 
 // ─── ОЧИСТКА ───────────────────────────────────────────────

@@ -28,9 +28,22 @@ func GetTaskStatus(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "Invalid task ID"})
 	}
 
+	userID, ok := c.Locals("user_id").(uint)
+	if !ok {
+		return c.Status(401).JSON(fiber.Map{"error": "Unauthorized"})
+	}
+	role, _ := c.Locals("role").(string)
+
 	task, err := services.Queue.GetTaskByID(uint(taskID))
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "Task not found"})
+	}
+
+	// Prevent IDOR: only task owner can view, unless Administrator
+	if role != "Administrator" {
+		if task.UserID == nil || *task.UserID != userID {
+			return c.Status(403).JSON(fiber.Map{"error": "Access denied"})
+		}
 	}
 
 	return c.JSON(task)
@@ -45,9 +58,21 @@ func GetTaskByRequestID(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "Request ID is required"})
 	}
 
+	userID, ok := c.Locals("user_id").(uint)
+	if !ok {
+		return c.Status(401).JSON(fiber.Map{"error": "Unauthorized"})
+	}
+	role, _ := c.Locals("role").(string)
+
 	task, err := services.Queue.GetTaskByRequestID(requestID)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "Task not found"})
+	}
+
+	if role != "Administrator" {
+		if task.UserID == nil || *task.UserID != userID {
+			return c.Status(403).JSON(fiber.Map{"error": "Access denied"})
+		}
 	}
 
 	return c.JSON(task)
@@ -105,6 +130,24 @@ func GetBatchProgress(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "Batch ID is required"})
 	}
 
+	userID, ok := c.Locals("user_id").(uint)
+	if !ok {
+		return c.Status(401).JSON(fiber.Map{"error": "Unauthorized"})
+	}
+	role, _ := c.Locals("role").(string)
+	if role != "Administrator" {
+		// Validate ownership by loading tasks once.
+		tasks, err := services.Queue.GetBatchTasks(batchID)
+		if err != nil {
+			return c.Status(404).JSON(fiber.Map{"error": "Batch not found"})
+		}
+		for _, t := range tasks {
+			if t.UserID == nil || *t.UserID != userID {
+				return c.Status(403).JSON(fiber.Map{"error": "Access denied"})
+			}
+		}
+	}
+
 	progress, err := services.Queue.GetBatchProgress(batchID)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": err.Error()})
@@ -122,9 +165,23 @@ func GetBatchTasks(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "Batch ID is required"})
 	}
 
+	userID, ok := c.Locals("user_id").(uint)
+	if !ok {
+		return c.Status(401).JSON(fiber.Map{"error": "Unauthorized"})
+	}
+	role, _ := c.Locals("role").(string)
+
 	tasks, err := services.Queue.GetBatchTasks(batchID)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if role != "Administrator" {
+		for _, t := range tasks {
+			if t.UserID == nil || *t.UserID != userID {
+				return c.Status(403).JSON(fiber.Map{"error": "Access denied"})
+			}
+		}
 	}
 
 	// Также получаем прогресс

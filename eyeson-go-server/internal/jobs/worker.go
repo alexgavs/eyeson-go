@@ -32,19 +32,6 @@ func New(db *gorm.DB) *Worker {
 	}
 }
 
-func (w *Worker) SetPaused(paused bool) {
-	var val int32 = 0
-	if paused {
-		val = 1
-	}
-	atomic.StoreInt32(&w.paused, val)
-	status := "RESUMED"
-	if paused {
-		status = "PAUSED"
-	}
-	log.Printf("[JobWorker] Status changed to %s", status)
-}
-
 func (w *Worker) IsPaused() bool {
 	return atomic.LoadInt32(&w.paused) == 1
 }
@@ -63,7 +50,7 @@ func (w *Worker) Start() {
 }
 
 func (w *Worker) ProcessPendingTasks() {
-	var tasks []models.SyncTask
+	var tasks []models.SyncTaskExtended
 
 	// Fetch pending tasks
 	if err := w.DB.Where("status = ? AND next_run_at <= ?", "PENDING", time.Now()).Find(&tasks).Error; err != nil {
@@ -76,7 +63,7 @@ func (w *Worker) ProcessPendingTasks() {
 	}
 }
 
-func (w *Worker) processTask(task models.SyncTask) {
+func (w *Worker) processTask(task models.SyncTaskExtended) {
 	log.Printf("[JobWorker] Processing task ID=%d Type=%s Target=%s", task.ID, task.Type, task.TargetMSISDN)
 
 	startTime := time.Now()
@@ -107,17 +94,48 @@ func (w *Worker) processTask(task models.SyncTask) {
 		log.Printf("[JobWorker] Task ID=%d FAILED: %v", task.ID, err)
 
 		// Determine Failure Type
-		isNetworkError := strings.Contains(errMsg, "connect refused") || strings.Contains(errMsg, "no such host") || strings.Contains(errMsg, "timeout")
+		isNetworkError := strings.Contains(errMsg, "connect refused") ||
+			strings.Contains(errMsg, "connectex") ||
+			strings.Contains(errMsg, "no such host") ||
+			strings.Contains(errMsg, "timeout") ||
+			strings.Contains(errMsg, "dial tcp")
 		isRefused := strings.Contains(errMsg, "500") || strings.Contains(errMsg, "403") || strings.Contains(errMsg, "Server Internal Error")
 
+		// Fatal errors that should NOT be retried - mark as COMPLETED with error
+		isFatalError := strings.Contains(errMsg, "not allowed to request_type_id") || // Permission/state issue
+			strings.Contains(errMsg, "Permission Denied") ||
+			strings.Contains(errMsg, "initial value #null") || // Already in target state
+			strings.Contains(errMsg, "subscriber not found") ||
+			strings.Contains(errMsg, "invalid subscriber") ||
+			strings.Contains(errMsg, "not allowed") ||
+			strings.Contains(errMsg, "actionType is mandatory") || // Invalid label update request
+			strings.Contains(errMsg, "targetId is mandatory") ||
+			strings.Contains(errMsg, "Invalid actionType") ||
+			strings.Contains(errMsg, "Invalid targetId") ||
+			(strings.Contains(errMsg, "FAILED") && strings.Contains(errMsg, "target_value")) ||
+			(strings.Contains(errMsg, "FAILED") && strings.Contains(errMsg, "mandatory"))
+
 		// Logic based on error type
-		if isNetworkError {
+		if isFatalError {
+			log.Printf("[JobWorker] FATAL API Error detected - will not retry. Marking as COMPLETED with error.")
+			status = "COMPLETED" // Mark as completed so it doesn't retry
+			result = "SKIPPED: " + errMsg
+			// Log to audit
+			services.Audit.LogQueueCompleted(task.ID, task.TargetMSISDN, result, durationMs)
+
+			w.DB.Model(&task).Updates(map[string]interface{}{
+				"status":     status,
+				"result":     result,
+				"updated_at": time.Now(),
+			})
+			return
+		} else if isNetworkError {
 			log.Printf("[JobWorker] Network Error detected. Server might be DOWN.")
 		} else if isRefused {
 			log.Printf("[JobWorker] Server REFUSED the request.")
 		}
 
-		// Retry logic
+		// Retry logic for non-fatal errors
 		if task.Attempt < task.MaxAttempts {
 			backoffMinutes := task.Attempt + 1
 			if isNetworkError {
@@ -173,14 +191,53 @@ type UpdateSimPayload struct {
 	Value  string `json:"value"`
 }
 
-func (w *Worker) handleUpdateSim(task models.SyncTask) (string, error) {
-	var p UpdateSimPayload
-	if err := json.Unmarshal([]byte(task.Payload), &p); err != nil {
-		return "", err
+func (w *Worker) handleUpdateSim(task models.SyncTaskExtended) (string, error) {
+	var msisdn, field, value string
+
+	// Для LABEL_UPDATE используем поля LabelField и LabelValue из задачи
+	if task.Type == models.TaskTypeLabelUpdate && task.LabelField != "" {
+		msisdn = task.TargetMSISDN
+		if msisdn == "" {
+			msisdn = task.TargetCLI
+		}
+		field = task.LabelField
+		value = task.LabelValue
+		
+		// Нормализуем поле (CUSTOMER_LABEL_1 -> label_1)
+		switch field {
+		case "CUSTOMER_LABEL_1":
+			field = "label_1"
+		case "CUSTOMER_LABEL_2":
+			field = "label_2"
+		case "CUSTOMER_LABEL_3":
+			field = "label_3"
+		}
+		
+		log.Printf("[Worker] LABEL_UPDATE: msisdn=%s, field=%s, value=%s", msisdn, field, value)
+	} else {
+		// Fallback для UPDATE_SIM - парсим из Payload
+		var p UpdateSimPayload
+		if err := json.Unmarshal([]byte(task.Payload), &p); err != nil {
+			return "", fmt.Errorf("failed to parse payload: %w", err)
+		}
+		msisdn = p.Msisdn
+		field = p.Field
+		value = p.Value
 	}
 
-	// Call API
-	resp, err := w.Client.BulkUpdate([]string{p.Msisdn}, p.Field, p.Value)
+	if msisdn == "" {
+		return "", fmt.Errorf("msisdn is required")
+	}
+
+	// Для label updates используем UpdateSIMLabel
+	var resp *models.BulkUpdateResponse
+	var err error
+	if field == "label_1" || field == "label_2" || field == "label_3" {
+		resp, err = w.Client.UpdateSIMLabel(msisdn, field, value)
+	} else {
+		resp, err = w.Client.BulkUpdate([]string{msisdn}, field, value)
+	}
+
 	if err != nil {
 		return "", err
 	}
@@ -189,26 +246,30 @@ func (w *Worker) handleUpdateSim(task models.SyncTask) (string, error) {
 		return "", fmt.Errorf("API Error: %s - %s", resp.Result, resp.Message)
 	}
 
-	// Update local DB to reflect change immediately (optimistic)
-	// Note: Field names in API might differ from DB.
-	// We can either map them or wait for next Sync.
-	// For now, let's just log it. Real-time update is safer via Sync.
-	// But we can trigger a single sync?
-	// For now, just succeed.
+	// Update local DB to reflect change immediately
+	if field == "label_1" || field == "label_2" || field == "label_3" {
+		dbField := "label1"
+		if field == "label_2" {
+			dbField = "label2"
+		} else if field == "label_3" {
+			dbField = "label3"
+		}
+		w.DB.Model(&models.SimCard{}).Where("msisdn = ? OR cli = ?", msisdn, msisdn).Update(dbField, value)
+	}
 
 	// Create History
 	w.DB.Create(&models.SimHistory{
 		SimID:    0, // We need to lookup ID, skipped for now
-		MSISDN:   p.Msisdn,
+		MSISDN:   msisdn,
 		Action:   "UPDATE_FIELD",
-		Field:    p.Field,
-		NewValue: p.Value,
+		Field:    field,
+		NewValue: value,
 		Source:   "SYNC_WORKER",
 		TaskID:   &task.ID,
 	})
 
 	// Sync updated SIM from API to ensure consistency
-	w.syncSimsFromAPI([]string{p.Msisdn})
+	w.syncSimsFromAPI([]string{msisdn})
 
 	return "Update successful", nil
 }
@@ -218,7 +279,7 @@ type BulkStatusPayload struct {
 	Status  string   `json:"status"`
 }
 
-func (w *Worker) handleChangeStatus(task models.SyncTask) (string, error) {
+func (w *Worker) handleChangeStatus(task models.SyncTaskExtended) (string, error) {
 	var p BulkStatusPayload
 	if err := json.Unmarshal([]byte(task.Payload), &p); err != nil {
 		return "", err

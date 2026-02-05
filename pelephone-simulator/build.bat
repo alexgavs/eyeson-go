@@ -16,7 +16,7 @@ go build -o simulator.exe main.go
 if %ERRORLEVEL% NEQ 0 (
     echo.
     echo [X] Build FAILED!
-    pause
+    if not "%NO_PAUSE%"=="1" pause
     exit /b 1
 )
 
@@ -24,4 +24,4 @@ echo.
 echo [OK] Build successful!
 echo.
 echo Run: run_simulator.bat
-pause
+if not "%NO_PAUSE%"=="1" pause

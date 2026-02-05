@@ -6,321 +6,46 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Login, GetSims, GetStats, UpdateSim, ChangeStatus, GetJobStatus, GetJobs, GetUsers, CreateUser, UpdateUser, DeleteUser, ResetUserPassword, GetRoles, GetAPIStatus, GetSyncQueue, ToggleAPIConnection, ExecuteQueueTask, GetSimHistory, QueueTask, APIStatusResponse, User, Role, SimHistory } from './api';
+import {
+  Login,
+  GetSims,
+  GetStats,
+  UpdateSim,
+  ChangeStatus,
+  GetJobStatus,
+  GetJobs,
+  GetUsers,
+  CreateUser,
+  UpdateUser,
+  DeleteUser,
+  ResetUserPassword,
+  GetRoles,
+  GetAPIStatus,
+  GetUpstream,
+  SetUpstream,
+  QueueTask,
+  GetManualSyncStatus,
+  TriggerManualFullSync,
+  ManualSyncStatus,
+  APIStatusResponse,
+  User,
+  Role
+} from './api';
 
-// ==================== ТИПЫ ====================
+import type { NavPage, PendingJob, PendingStatus, Toast } from './types/app';
+import { ALL_COLUMNS, STORAGE_KEYS } from './constants/app';
+import { CookieManager } from './utils/cookies';
+import { SessionManager } from './utils/session';
+import { formatDate } from './utils/format';
 
-interface PendingJob {
-  requestId: number;
-  msisdns: string[];
-  targetStatus: string;
-  startTime: number;
-  attempts: number;
-}
-
-interface PendingStatus {
-  msisdn: string;
-  targetStatus: string;
-  attempts: number;
-  startTime: number;
-}
-
-interface ColumnConfig {
-  name: string;
-  field: string;
-  sortable: boolean;
-  sortKey?: string;
-  default: boolean;
-}
-
-interface Toast {
-  id: number;
-  message: string;
-  type: 'info' | 'success' | 'warning' | 'danger';
-}
-
-interface SessionData {
-  token: string;
-  username: string;
-  expiresAt: number;
-}
-
-type NavPage = 'sims' | 'jobs' | 'stats' | 'admin' | 'profile' | 'queue';
+import { QueueView } from './components/QueueView';
+import { ToastContainer } from './components/ToastContainer';
+import { SimDetailModal } from './components/SimDetailModal';
+import { JobStatusBadge, StatusBadge } from './components/StatusBadges';
 
 // ==================== КОНСТАНТЫ ====================
 
-const ALL_COLUMNS: Record<string, ColumnConfig> = {
-  'MSISDN': { name: 'MSISDN', field: 'MSISDN', sortable: true, sortKey: 'MSISDN', default: true },
-  'CLI': { name: 'CLI', field: 'CLI', sortable: true, sortKey: 'CLI', default: true },
-  'SIM_STATUS_CHANGE': { name: 'Status', field: 'SIM_STATUS_CHANGE', sortable: true, sortKey: 'SIM_STATUS_CHANGE', default: true },
-  'RATE_PLAN': { name: 'Rate Plan', field: 'RATE_PLAN_FULL_NAME', sortable: true, sortKey: 'RATE_PLAN_CHANGE', default: true },
-  'CUSTOMER_LABEL_1': { name: 'Label 1', field: 'CUSTOMER_LABEL_1', sortable: true, sortKey: 'CUSTOMER_LABEL_1', default: true },
-  'CUSTOMER_LABEL_2': { name: 'Label 2', field: 'CUSTOMER_LABEL_2', sortable: true, sortKey: 'CUSTOMER_LABEL_2', default: false },
-  'CUSTOMER_LABEL_3': { name: 'Label 3', field: 'CUSTOMER_LABEL_3', sortable: true, sortKey: 'CUSTOMER_LABEL_3', default: false },
-  'SIM_SWAP': { name: 'ICCID', field: 'SIM_SWAP', sortable: false, default: false },
-  'IMSI': { name: 'IMSI', field: 'IMSI', sortable: false, default: false },
-  'IMEI': { name: 'IMEI', field: 'IMEI', sortable: false, default: false },
-  'APN_NAME': { name: 'APN', field: 'APN_NAME', sortable: true, sortKey: 'APN_NAME', default: false },
-  'IP1': { name: 'IP Address', field: 'IP1', sortable: false, default: false },
-  'MONTHLY_USAGE_MB': { name: 'Usage (MB)', field: 'MONTHLY_USAGE_MB', sortable: true, sortKey: 'MONTHLY_USAGE_MB', default: true },
-  'ALLOCATED_MB': { name: 'Allocated (MB)', field: 'ALLOCATED_MB', sortable: true, sortKey: 'ALLOCATED_MB', default: false },
-  'LAST_SESSION_TIME': { name: 'Last Session', field: 'LAST_SESSION_TIME', sortable: true, sortKey: 'LAST_SESSION_TIME', default: false },
-  'IN_SESSION': { name: 'In Session', field: 'IN_SESSION', sortable: false, default: false }
-};
-
-const STORAGE_KEYS = {
-  columns: 'eyeson_visible_columns',
-  columnOrder: 'eyeson_column_order',
-  session: 'eyeson_session',
-  theme: 'theme'
-};
-
-const SESSION_DURATION = 24 * 60 * 60 * 1000; // 24 часа
-
-// Cookies helper functions
-const CookieManager = {
-  set(name: string, value: string, days: number = 365): void {
-    const expires = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toUTCString();
-    document.cookie = `${name}=${encodeURIComponent(value)};expires=${expires};path=/;SameSite=Strict`;
-  },
-  
-  get(name: string): string | null {
-    const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
-    return match ? decodeURIComponent(match[2]) : null;
-  },
-  
-  remove(name: string): void {
-    document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
-  }
-};
-
-// ==================== ХЕЛПЕРЫ ====================
-
-class SessionManager {
-  static save(token: string, username: string): void {
-    const session: SessionData = {
-      token,
-      username,
-      expiresAt: Date.now() + SESSION_DURATION
-    };
-    localStorage.setItem(STORAGE_KEYS.session, JSON.stringify(session));
-  }
-
-  static load(): SessionData | null {
-    try {
-      const data = localStorage.getItem(STORAGE_KEYS.session);
-      if (!data) return null;
-      
-      const session: SessionData = JSON.parse(data);
-      if (Date.now() > session.expiresAt) {
-        this.clear();
-        return null;
-      }
-      return session;
-    } catch {
-      return null;
-    }
-  }
-
-  static clear(): void {
-    localStorage.removeItem(STORAGE_KEYS.session);
-  }
-
-  static getToken(): string | null {
-    const session = this.load();
-    return session?.token || null;
-  }
-}
-
-const getStatusBadge = (status: string, isPending: boolean = false, syncStatus?: string) => {
-  let className = 'badge ';
-  if (status === 'Activated') className += 'bg-success';
-  else if (status === 'Suspended') className += 'bg-warning text-dark';
-  else if (status === 'Terminated') className += 'bg-danger';
-  else className += 'bg-secondary';
-
-  const showQueue = !!syncStatus;
-
-  return (
-    <span className={className}>
-      {status}
-      {(isPending || showQueue) && (
-        <>
-          <span className="spinner-border spinner-border-sm ms-1" style={{width: '0.7em', height: '0.7em'}}></span>
-          {showQueue && <span className="ms-1 small fst-italic"> {syncStatus === 'PENDING' || syncStatus === 'PROCESSING' ? '(In Queue)' : `(${syncStatus})`}</span>}
-        </>
-      )}
-    </span>
-  );
-};
-
-const getJobStatusBadge = (status: string) => {
-  const badges: Record<string, string> = {
-    'PENDING': 'bg-secondary',
-    'IN_PROGRESS': 'bg-info',
-    'COMPLETED': 'bg-success',
-    'SUCCESS': 'bg-success',
-    'PARTIAL_SUCCESS': 'bg-warning',
-    'FAILED': 'bg-danger'
-  };
-  return <span className={`badge ${badges[status] || 'bg-secondary'}`}>{status}</span>;
-};
-
-const formatDate = (dateValue: string | number) => {
-  if (!dateValue) return '-';
-  try {
-    // Handle Unix timestamp (seconds) - convert to milliseconds
-    if (typeof dateValue === 'number') {
-      return new Date(dateValue * 1000).toLocaleString();
-    }
-    // Handle string that might be Unix timestamp
-    if (typeof dateValue === 'string' && /^\d+$/.test(dateValue)) {
-      return new Date(parseInt(dateValue) * 1000).toLocaleString();
-    }
-    return new Date(dateValue).toLocaleString();
-  } catch {
-    return String(dateValue);
-  }
-};
-
 // ==================== ГЛАВНЫЙ КОМПОНЕНТ ====================
-
-const QueueView = () => {
-  const [tasks, setTasks] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [executing, setExecuting] = useState<number | null>(null);
-  const [currentTime, setCurrentTime] = useState(Date.now()); // For live countdown
-
-  const fetchQueue = async () => {
-    // Silent update if already loaded to prevent flickering
-    if (tasks.length === 0) setLoading(true);
-    try {
-      const resp = await GetSyncQueue();
-      setTasks(resp.data || []);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      if (tasks.length === 0) setLoading(false);
-    }
-  };
-
-  const executeTask = async (taskId: number) => {
-    if (executing) return; // Prevent multiple clicks
-    
-    setExecuting(taskId);
-    try {
-      await ExecuteQueueTask(taskId);
-      // Refresh queue after execution
-      await fetchQueue();
-    } catch (e: any) {
-      alert(`Error: ${e.message || 'Failed to execute task'}`);
-    } finally {
-      setExecuting(null);
-    }
-  };
-
-  const getTimeUntil = (nextRunAt: string) => {
-    const target = new Date(nextRunAt).getTime();
-    const diff = target - currentTime;
-
-    if (diff <= 0) return 'Now';
-
-    const seconds = Math.floor(diff / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const hours = Math.floor(minutes / 60);
-    const days = Math.floor(hours / 24);
-
-    if (days > 0) return `${days}d ${hours % 24}h`;
-    if (hours > 0) return `${hours}h ${minutes % 60}m`;
-    if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
-    return `${seconds}s`;
-  };
-
-  useEffect(() => {
-    fetchQueue();
-    const queueInterval = setInterval(fetchQueue, 2000);
-    const timeInterval = setInterval(() => setCurrentTime(Date.now()), 1000); // Update every second
-    
-    return () => {
-      clearInterval(queueInterval);
-      clearInterval(timeInterval);
-    };
-  }, []);
-
-  return (
-    <div className="card shadow-sm">
-      <div className="card-header bg-warning bg-opacity-10 d-flex justify-content-between align-items-center">
-        <h5 className="mb-0 text-dark">⏳ Pending Confirmation Queue (Internal)</h5>
-        <button className="btn btn-sm btn-outline-secondary" onClick={fetchQueue}>
-            Refresh
-        </button>
-      </div>
-      <div className="card-body p-0">
-        <div className="table-responsive">
-          <table className="table table-hover mb-0">
-            <thead className="table-light">
-              <tr>
-                <th>ID</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th>Attempts</th>
-                <th>Next Run</th>
-                <th>Details</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tasks.length === 0 ? (
-                <tr><td colSpan={6} className="text-center py-4 text-muted">Queue is empty</td></tr>
-              ) : (
-                tasks.map(task => {
-                  const timeUntil = task.next_run_at ? getTimeUntil(task.next_run_at) : '';
-                  const canExecute = task.status === 'PENDING' || task.status === 'FAILED';
-                  
-                  return (
-                    <tr key={task.id}>
-                      <td>#{task.id}</td>
-                      <td>
-                        <span 
-                          className={`badge bg-info text-dark ${canExecute ? 'cursor-pointer' : ''}`}
-                          onClick={() => canExecute && executeTask(task.id)}
-                          style={{ cursor: canExecute ? 'pointer' : 'default' }}
-                          title={canExecute ? 'Click to execute immediately' : ''}
-                        >
-                          {task.type}
-                          {executing === task.id && (
-                            <span className="spinner-border spinner-border-sm ms-1" style={{width: '0.6em', height: '0.6em'}}></span>
-                          )}
-                          {canExecute && executing !== task.id && ' ▶'}
-                        </span>
-                      </td>
-                      <td>
-                        <span className={`badge ${task.status === 'PENDING' ? 'bg-warning text-dark' : task.status === 'PROCESSING' ? 'bg-primary' : task.status === 'COMPLETED' ? 'bg-success' : 'bg-danger'}`}>
-                          {task.status}
-                        </span>
-                      </td>
-                      <td>{task.attempts}</td>
-                      <td>
-                        <div>
-                          {formatDate(task.next_run_at)}
-                          {timeUntil && task.status === 'PENDING' && (
-                            <div className="small text-muted">
-                              ({timeUntil})
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                      <td className="small font-monospace text-truncate" style={{maxWidth: '300px'}}>{task.payload}</td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 function App() {
   // Авторизация
@@ -385,6 +110,18 @@ function App() {
   const [apiStatus, setApiStatus] = useState<APIStatusResponse | null>(null);
   const [apiStatusLoading, setApiStatusLoading] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+
+  // Upstream selection (Admin only, persisted on server; applies after restart)
+  const [upstreamCfg, setUpstreamCfg] = useState<any>(null);
+  const [upstreamLoading, setUpstreamLoading] = useState(false);
+  const [upstreamSaving, setUpstreamSaving] = useState(false);
+  const [upstreamSelectedDraft, setUpstreamSelectedDraft] = useState<'pelephone' | 'simulator'>('pelephone');
+  const [upstreamRestartRequired, setUpstreamRestartRequired] = useState(false);
+
+  // Manual sync (Admin only) - always from Pelephone
+  const [manualSyncStatus, setManualSyncStatus] = useState<ManualSyncStatus | null>(null);
+  const [manualSyncLoading, setManualSyncLoading] = useState(false);
+  const [manualSyncStarting, setManualSyncStarting] = useState(false);
 
   // Theme
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -827,6 +564,70 @@ function App() {
     }
   }, [isAdmin]);
 
+  const loadUpstream = useCallback(async () => {
+    if (!isAdmin) return;
+    setUpstreamLoading(true);
+    try {
+      const cfg = await GetUpstream();
+      if (cfg) {
+        setUpstreamCfg(cfg);
+        setUpstreamSelectedDraft(cfg.selected);
+        setUpstreamRestartRequired(false);
+      }
+    } catch (e) {
+      console.error('Error loading upstream:', e);
+    } finally {
+      setUpstreamLoading(false);
+    }
+  }, [isAdmin]);
+
+  const loadManualSyncStatus = useCallback(async () => {
+    if (!isAdmin) return;
+    setManualSyncLoading(true);
+    try {
+      const st = await GetManualSyncStatus();
+      setManualSyncStatus(st);
+      // Обновляем статистику во время синхронизации
+      if (st?.running) {
+        loadStats(true);
+      }
+    } catch (e) {
+      console.error('Error loading manual sync status:', e);
+    } finally {
+      setManualSyncLoading(false);
+    }
+  }, [isAdmin, loadStats]);
+
+  // Предыдущий статус синхронизации для отслеживания завершения
+  const prevSyncRunningRef = useRef(false);
+  
+  useEffect(() => {
+    if (!isAdmin) {
+      setManualSyncStatus(null);
+      return;
+    }
+
+    loadManualSyncStatus();
+    const t = setInterval(() => {
+      loadManualSyncStatus();
+    }, 2000); // Уменьшил интервал для более частого обновления
+    return () => clearInterval(t);
+  }, [isAdmin, loadManualSyncStatus]);
+  
+  // Обновляем статистику и данные когда синхронизация завершилась
+  useEffect(() => {
+    const wasRunning = prevSyncRunningRef.current;
+    const nowRunning = manualSyncStatus?.running ?? false;
+    prevSyncRunningRef.current = nowRunning;
+    
+    // Если синхронизация только что завершилась
+    if (wasRunning && !nowRunning) {
+      loadStats(true);
+      loadData(pagination.start, pagination.limit);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [manualSyncStatus?.running, loadStats, pagination.start, pagination.limit]);
+
   // Определяем роль пользователя при входе
   useEffect(() => {
     if (isLoggedIn) {
@@ -844,6 +645,15 @@ function App() {
       setApiStatus(null);
     }
   }, [isLoggedIn]);
+
+  useEffect(() => {
+    if (isAdmin) {
+      loadUpstream();
+    } else {
+      setUpstreamCfg(null);
+      setUpstreamRestartRequired(false);
+    }
+  }, [isAdmin, loadUpstream]);
 
   const openCreateUserModal = () => {
     setEditingUser(null);
@@ -1031,25 +841,57 @@ function App() {
     const msisdns = Array.from(selectedSims);
     console.log('[handleBulkStatus] MSISDNs:', msisdns);
     
+    // Build items with old_status from sims array
+    const items = msisdns.map(msisdn => {
+      const sim = sims.find(s => s.MSISDN === msisdn);
+      return {
+        msisdn,
+        cli: sim?.CLI || '',
+        old_status: sim?.SIM_STATUS_CHANGE || ''
+      };
+    });
+    
     updateStatusOptimistic(msisdns, status);
     showToast(`Запрос на изменение статуса ${msisdns.length} SIM...`, 'info');
     
-    console.log('[handleBulkStatus] Calling ChangeStatus API...');
-    const result = await ChangeStatus(msisdns, status);
+    console.log('[handleBulkStatus] Calling ChangeStatus API with items:', items);
+    const result = await ChangeStatus(items, status);
     console.log('[handleBulkStatus] API result:', result);
     
-    if (result.success && result.requestId) {
-      showToast(`✓ Запрос #${result.requestId} отправлен. Ожидание подтверждения...`, 'success');
-      setSelectedSims(new Set());
-      
-      // Добавляем Job в очередь polling
-      setPendingJobs(prev => [...prev, {
-        requestId: result.requestId!,
-        msisdns,
-        targetStatus: status,
-        startTime: Date.now(),
-        attempts: 0
-      }]);
+    if (result.success) {
+      // If queued, we must have a requestId to poll; otherwise treat as immediate success.
+      if (result.queued && result.requestId) {
+        showToast(`✓ Запрос #${result.requestId} отправлен. Ожидание подтверждения...`, 'success');
+        setSelectedSims(new Set());
+
+        // Добавляем Job в очередь polling
+        setPendingJobs(prev => [...prev, {
+          requestId: result.requestId!,
+          msisdns,
+          targetStatus: status,
+          startTime: Date.now(),
+          attempts: 0
+        }]);
+      } else {
+        showToast('✓ Статус обновлён', 'success');
+        setSelectedSims(new Set());
+
+        // Clear pending markers immediately
+        setPendingStatuses(prev => {
+          const newMap = new Map(prev);
+          msisdns.forEach(m => newMap.delete(m));
+          return newMap;
+        });
+        setSims(prev => prev.map(sim => {
+          if (msisdns.includes(sim.MSISDN)) {
+            return { ...sim, SIM_STATUS_CHANGE: status, _pending: false };
+          }
+          return sim;
+        }));
+
+        // Refresh to sync with backend data
+        loadData(pagination.start, pagination.limit);
+      }
     } else {
       showToast("Ошибка: " + (result.error || "Unknown error"), 'danger');
       loadData(pagination.start, pagination.limit);
@@ -1073,27 +915,50 @@ function App() {
     }
     
     const msisdn = selectedSim.MSISDN;
-    console.log('[handleSingleStatus] MSISDN:', msisdn);
+    const oldStatus = selectedSim.SIM_STATUS_CHANGE || '';
+    const cli = selectedSim.CLI || '';
+    console.log('[handleSingleStatus] MSISDN:', msisdn, 'oldStatus:', oldStatus);
     
     updateStatusOptimistic([msisdn], status);
     setSelectedSim({ ...selectedSim, SIM_STATUS_CHANGE: status, _pending: true });
     showToast(`Запрос на изменение статуса ${msisdn}...`, 'info');
     
-    console.log('[handleSingleStatus] Calling ChangeStatus API...');
-    const result = await ChangeStatus([msisdn], status);
+    const items = [{ msisdn, cli, old_status: oldStatus }];
+    console.log('[handleSingleStatus] Calling ChangeStatus API with items:', items);
+    const result = await ChangeStatus(items, status);
     console.log('[handleSingleStatus] API result:', result);
     
-    if (result.success && result.requestId) {
-      showToast(`✓ Запрос #${result.requestId} отправлен. Ожидание подтверждения...`, 'success');
-      
-      // Добавляем Job в очередь polling
-      setPendingJobs(prev => [...prev, {
-        requestId: result.requestId!,
-        msisdns: [msisdn],
-        targetStatus: status,
-        startTime: Date.now(),
-        attempts: 0
-      }]);
+    if (result.success) {
+      if (result.queued && result.requestId) {
+        showToast(`✓ Запрос #${result.requestId} отправлен. Ожидание подтверждения...`, 'success');
+
+        // Добавляем Job в очередь polling
+        setPendingJobs(prev => [...prev, {
+          requestId: result.requestId!,
+          msisdns: [msisdn],
+          targetStatus: status,
+          startTime: Date.now(),
+          attempts: 0
+        }]);
+      } else {
+        showToast('✓ Статус обновлён', 'success');
+
+        // Clear pending markers immediately
+        setPendingStatuses(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(msisdn);
+          return newMap;
+        });
+        setSims(prev => prev.map(sim => {
+          if (sim.MSISDN === msisdn) {
+            return { ...sim, SIM_STATUS_CHANGE: status, _pending: false };
+          }
+          return sim;
+        }));
+        setSelectedSim((prev: any) => prev ? ({ ...prev, SIM_STATUS_CHANGE: status, _pending: false }) : prev);
+
+        loadData(pagination.start, pagination.limit);
+      }
     } else {
       showToast("Ошибка: " + (result.error || "Unknown error"), 'danger');
       loadData(pagination.start, pagination.limit);
@@ -1116,18 +981,72 @@ function App() {
 
   const saveEdit = async () => {
     setLoading(true);
+    const changes: string[] = [];
+    const errors: string[] = [];
+    
     try {
-      if (editValues.label1 !== (selectedSim.CUSTOMER_LABEL_1 || '')) {
-        await UpdateSim(selectedSim.MSISDN, "CUSTOMER_LABEL_1", editValues.label1);
-      }
-      if (editValues.label2 !== (selectedSim.CUSTOMER_LABEL_2 || '')) {
-        await UpdateSim(selectedSim.MSISDN, "CUSTOMER_LABEL_2", editValues.label2);
-      }
-      if (editValues.label3 !== (selectedSim.CUSTOMER_LABEL_3 || '')) {
-        await UpdateSim(selectedSim.MSISDN, "CUSTOMER_LABEL_3", editValues.label3);
+      // Label 1
+      const oldLabel1 = selectedSim.CUSTOMER_LABEL_1 || '';
+      if (editValues.label1 !== oldLabel1) {
+        const result = await UpdateSim({
+          msisdn: selectedSim.MSISDN,
+          cli: selectedSim.CLI,
+          field: "label_1",
+          value: editValues.label1,
+          old_value: oldLabel1
+        });
+        if (result.success) {
+          const queuedText = result.queued ? ' (в очередь)' : '';
+          changes.push(`Label 1: "${oldLabel1}" → "${editValues.label1}"${queuedText}`);
+        } else {
+          errors.push(`Label 1: ${result.error}`);
+        }
       }
       
-      showToast('Labels обновлены успешно', 'success');
+      // Label 2
+      const oldLabel2 = selectedSim.CUSTOMER_LABEL_2 || '';
+      if (editValues.label2 !== oldLabel2) {
+        const result = await UpdateSim({
+          msisdn: selectedSim.MSISDN,
+          cli: selectedSim.CLI,
+          field: "label_2",
+          value: editValues.label2,
+          old_value: oldLabel2
+        });
+        if (result.success) {
+          const queuedText = result.queued ? ' (в очередь)' : '';
+          changes.push(`Label 2: "${oldLabel2}" → "${editValues.label2}"${queuedText}`);
+        } else {
+          errors.push(`Label 2: ${result.error}`);
+        }
+      }
+      
+      // Label 3
+      const oldLabel3 = selectedSim.CUSTOMER_LABEL_3 || '';
+      if (editValues.label3 !== oldLabel3) {
+        const result = await UpdateSim({
+          msisdn: selectedSim.MSISDN,
+          cli: selectedSim.CLI,
+          field: "label_3",
+          value: editValues.label3,
+          old_value: oldLabel3
+        });
+        if (result.success) {
+          const queuedText = result.queued ? ' (в очередь)' : '';
+          changes.push(`Label 3: "${oldLabel3}" → "${editValues.label3}"${queuedText}`);
+        } else {
+          errors.push(`Label 3: ${result.error}`);
+        }
+      }
+      
+      if (errors.length > 0) {
+        showToast(`Ошибки: ${errors.join('; ')}`, 'danger');
+      } else if (changes.length > 0) {
+        showToast(`Изменения сохранены:\n${changes.join('\n')}`, 'success');
+      } else {
+        showToast('Нет изменений для сохранения', 'info');
+      }
+      
       setEditMode(false);
       loadData(pagination.start, pagination.limit);
       setSelectedSim(null);
@@ -1219,8 +1138,7 @@ function App() {
     const value = sim[config.field];
     
     if (column === 'SIM_STATUS_CHANGE') {
-      // Use SYNC_STATUS from API (all caps in response)
-      return getStatusBadge(value, sim._pending, sim.SYNC_STATUS);
+      return <StatusBadge status={value} isPending={sim._pending} syncStatus={sim.SYNC_STATUS} />;
     }
     
     return value || '-';
@@ -1806,7 +1724,7 @@ function App() {
                           <td><strong>{job.jobId}</strong></td>
                           <td><small>{actionType.replace(/_/g, ' ')}</small></td>
                           <td><code className="text-info">{changeDisplay}</code></td>
-                          <td>{getJobStatusBadge(status)}</td>
+                          <td><JobStatusBadge status={status} /></td>
                           <td><small>{formatDate(job.requestTime)}</small></td>
                           <td><small>{formatDate(job.lastActionTime)}</small></td>
                           <td>
@@ -2230,49 +2148,189 @@ function App() {
                           </tr>
                         </tbody>
                       </table>
-                      
-                      <div className="d-grid gap-2 mt-3">
-                        <button 
-                          className="btn btn-outline-danger btn-sm"
-                          onClick={async () => {
-                            if (window.confirm('Simulate API Disconnect (Crash)?')) {
-                              try {
-                                await ToggleAPIConnection('disconnect');
-                                showToast('Simulating API Outage...', 'warning');
-                                loadAPIStatus();
-                              } catch(e) { showToast('Failed to toggle connection', 'danger'); }
-                            }
-                          }}
-                        >
-                          🔌 Disconnect (Crash)
-                        </button>
-                        <button 
-                          className="btn btn-outline-warning btn-sm"
-                          onClick={async () => {
-                            if (window.confirm('Simulate API 500 Errors (Refused)?')) {
-                              try {
-                                await ToggleAPIConnection('set_mode', 'REFUSED');
-                                showToast('Simulating API 500 Errors...', 'warning');
-                                loadAPIStatus();
-                              } catch(e) { showToast('Failed to set mode', 'danger'); }
-                            }
-                          }}
-                        >
-                          ⚠️ Simulate 500 Error
-                        </button>
-                        <button 
-                          className="btn btn-outline-success btn-sm"
-                          onClick={async () => {
-                             try {
-                                await ToggleAPIConnection('connect');
-                                showToast('Restoring API Connection...', 'success');
-                                loadAPIStatus();
-                              } catch(e) { showToast('Failed to toggle connection', 'danger'); }
-                          }}
-                        >
-                          🔗 Connect (Restore)
-                        </button>
+
+                      <div className="mt-3 p-3 bg-dark rounded border border-secondary">
+                        <div className="d-flex align-items-center justify-content-between">
+                          <h6 className="text-info mb-0">🌐 Upstream Provider</h6>
+                          <button className="btn btn-outline-light btn-sm" onClick={loadUpstream} disabled={upstreamLoading}>
+                            {upstreamLoading ? '⏳' : '🔄'}
+                          </button>
+                        </div>
+
+                        <div className="mt-2">
+                          <label className="form-label text-muted small mb-1">Select provider (applies after restart)</label>
+                          <select
+                            className="form-select form-select-sm"
+                            value={upstreamSelectedDraft}
+                            onChange={(e) => setUpstreamSelectedDraft(e.target.value as any)}
+                            disabled={upstreamSaving || upstreamLoading}
+                          >
+                            <option value="pelephone">Pelephone server (env)</option>
+                            <option value="simulator">Simulator server (env)</option>
+                          </select>
+
+                          {upstreamCfg?.options && (
+                            <div className="mt-2 small">
+                              <div className="text-muted">Pelephone URL: <code className="text-info">{upstreamCfg.options.pelephone?.base_url}</code></div>
+                              <div className="text-muted">Simulator URL: <code className="text-info">{upstreamCfg.options.simulator?.base_url}</code></div>
+                            </div>
+                          )}
+
+                          <div className="d-grid gap-2 mt-2">
+                            <button
+                              className="btn btn-outline-primary btn-sm"
+                              disabled={
+                                upstreamSaving || upstreamLoading ||
+                                !upstreamCfg ||
+                                upstreamSelectedDraft === upstreamCfg.selected
+                              }
+                              onClick={async () => {
+                                setUpstreamSaving(true);
+                                try {
+                                  const saved = await SetUpstream(upstreamSelectedDraft);
+                                  setUpstreamCfg(saved);
+                                  setUpstreamRestartRequired(true);
+                                  showToast('Upstream selection saved. Restart server to apply.', 'warning');
+                                } catch (e: any) {
+                                  showToast(e.message || 'Failed to save upstream selection', 'danger');
+                                } finally {
+                                  setUpstreamSaving(false);
+                                }
+                              }}
+                            >
+                              {upstreamSaving ? 'Saving...' : 'Apply (Restart Required)'}
+                            </button>
+                          </div>
+
+                          {upstreamRestartRequired && (
+                            <div className="alert alert-warning mt-2 mb-0 py-2">
+                              <small><strong>Restart required:</strong> перезапусти Go сервер, чтобы применить выбор.</small>
+                            </div>
+                          )}
+                        </div>
                       </div>
+
+            <div className="mt-3 p-3 bg-dark rounded border border-secondary">
+            <div className="d-flex align-items-center justify-content-between">
+              <h6 className="text-info mb-0">🗄️ Sync Databases</h6>
+              <button className="btn btn-outline-light btn-sm" onClick={loadManualSyncStatus} disabled={manualSyncLoading}>
+              {manualSyncLoading ? '⏳' : '🔄'}
+              </button>
+            </div>
+
+            <div className="mt-2 small text-muted">
+              Источник истины: <code className="text-info">Pelephone</code>. Можно синхронизировать в локальную БД и (опционально) залить данные в симулятор.
+            </div>
+
+            {manualSyncStatus && (
+              <div className="mt-2 small">
+              {(() => {
+                const isIdle = !manualSyncStatus.running && !manualSyncStatus.started_at && !manualSyncStatus.finished_at;
+                const cls = isIdle ? 'text-light' : (manualSyncStatus.running ? 'text-warning' : (manualSyncStatus.last_success ? 'text-success' : 'text-danger'));
+                const txt = isIdle ? 'IDLE' : (manualSyncStatus.running ? 'RUNNING' : (manualSyncStatus.last_success ? 'OK' : 'ERROR'));
+                return (
+                <div className="text-muted">Status: <code className={cls}>{txt}</code></div>
+                );
+              })()}
+              {manualSyncStatus.started_at && (
+                <div className="text-muted">Started: <code className="text-light">{new Date(manualSyncStatus.started_at).toLocaleString()}</code></div>
+              )}
+              {manualSyncStatus.finished_at && (
+                <div className="text-muted">Finished: <code className="text-light">{new Date(manualSyncStatus.finished_at).toLocaleString()}</code></div>
+              )}
+              <div className="text-muted">Processed: <code className="text-light">{manualSyncStatus.last_processed}</code> | Duration: <code className="text-light">{manualSyncStatus.last_duration_ms}ms</code></div>
+
+              {manualSyncStatus.clear_local_db && (
+                <div className="text-muted">
+                  Cleared before sync: <code className="text-warning">{manualSyncStatus.deleted_before_sync ?? 0}</code> records deleted
+                </div>
+              )}
+
+              {manualSyncStatus.simulator_requested && (
+                <div className="text-muted">
+                  Simulator push:{' '}
+                  <code className={manualSyncStatus.simulator_last_push_ok ? 'text-success' : (manualSyncStatus.simulator_last_error ? 'text-danger' : 'text-light')}>
+                    {manualSyncStatus.simulator_last_push_ok ? 'OK' : (manualSyncStatus.simulator_last_error ? 'ERROR' : 'PENDING')}
+                  </code>
+                  {' '}| Pushed: <code className="text-light">{manualSyncStatus.simulator_last_pushed ?? 0}</code>
+                  {' '}| Duration: <code className="text-light">{manualSyncStatus.simulator_duration_ms ?? 0}ms</code>
+                  {manualSyncStatus.simulator_base_url && (
+                    <> | URL: <code className="text-info">{manualSyncStatus.simulator_base_url}</code></>
+                  )}
+                </div>
+              )}
+
+              {manualSyncStatus.last_error && (
+                <div className="text-muted">Error: <code className="text-danger">{manualSyncStatus.last_error}</code></div>
+              )}
+              {!manualSyncStatus.last_error && manualSyncStatus.simulator_last_error && (
+                <div className="text-muted">Simulator error: <code className="text-danger">{manualSyncStatus.simulator_last_error}</code></div>
+              )}
+              </div>
+            )}
+
+            <div className="d-grid gap-2 mt-2">
+              <button
+              className="btn btn-outline-warning btn-sm"
+              disabled={manualSyncStarting || manualSyncStatus?.running}
+              onClick={async () => {
+                if (!window.confirm('Запустить полную синхронизацию из Pelephone в локальную БД?')) return;
+                setManualSyncStarting(true);
+                try {
+                await TriggerManualFullSync({ pushSimulator: false });
+                showToast('Sync started (Pelephone → local DB).', 'info');
+                loadManualSyncStatus();
+                } catch (e: any) {
+                showToast(e.message || 'Failed to start sync', 'danger');
+                } finally {
+                setManualSyncStarting(false);
+                }
+              }}
+              >
+              {manualSyncStarting ? 'Starting...' : (manualSyncStatus?.running ? 'Sync Running...' : 'Sync Now (Pelephone → Local)')}
+              </button>
+
+              <button
+                className="btn btn-outline-danger btn-sm"
+                disabled={manualSyncStarting || manualSyncStatus?.running}
+                onClick={async () => {
+                  if (!window.confirm('⚠️ ВНИМАНИЕ: Это удалит ВСЕ записи из локальной БД и загрузит заново с Pelephone!\n\nПродолжить?')) return;
+                  setManualSyncStarting(true);
+                  try {
+                    await TriggerManualFullSync({ clearLocalDB: true, pushSimulator: false });
+                    showToast('Clear & Sync started (DELETE ALL → Pelephone → local DB).', 'warning');
+                    loadManualSyncStatus();
+                  } catch (e: any) {
+                    showToast(e.message || 'Failed to start sync', 'danger');
+                  } finally {
+                    setManualSyncStarting(false);
+                  }
+                }}
+              >
+                {manualSyncStarting ? 'Starting...' : (manualSyncStatus?.running ? 'Sync Running...' : '🗑️ Clear & Sync (Delete Local → Reload)')}
+              </button>
+
+              <button
+                className="btn btn-outline-info btn-sm"
+                disabled={manualSyncStarting || manualSyncStatus?.running}
+                onClick={async () => {
+                  if (!window.confirm('Синхронизировать из Pelephone в локальную БД и залить в симулятор? (требуется запущенный симулятор)')) return;
+                  setManualSyncStarting(true);
+                  try {
+                    await TriggerManualFullSync({ pushSimulator: true });
+                    showToast('Sync started (Pelephone → local DB → simulator).', 'info');
+                    loadManualSyncStatus();
+                  } catch (e: any) {
+                    showToast(e.message || 'Failed to start sync', 'danger');
+                  } finally {
+                    setManualSyncStarting(false);
+                  }
+                }}
+              >
+                {manualSyncStarting ? 'Starting...' : (manualSyncStatus?.running ? 'Sync Running...' : 'Sync + Push to Simulator')}
+              </button>
+            </div>
+            </div>
                     </div>
                   )}
                   
@@ -2543,262 +2601,6 @@ function App() {
       )}
 
       <ToastContainer toasts={toasts} />
-    </div>
-  );
-}
-
-// ==================== ПОДКОМПОНЕНТЫ ====================
-
-function ToastContainer({ toasts }: { toasts: Toast[] }) {
-  return (
-    <div className="toast-container position-fixed bottom-0 end-0 p-3" style={{zIndex: 9999}}>
-      {toasts.map(toast => (
-        <div key={toast.id} className="toast show" role="alert" style={{
-          backgroundColor: toast.type === 'danger' ? '#dc3545' : 
-                          toast.type === 'success' ? '#198754' : 
-                          toast.type === 'warning' ? '#ffc107' : '#0dcaf0',
-          color: toast.type === 'warning' ? '#000' : '#fff'
-        }}>
-          <div className="toast-body">{toast.message}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-interface SimDetailModalProps {
-  sim: any;
-  editMode: boolean;
-  editValues: any;
-  loading: boolean;
-  onClose: () => void;
-  onEditStart: () => void;
-  onEditSave: () => void;
-  onEditValueChange: (key: string, value: string) => void;
-  onStatusChange: (status: string) => void;
-}
-
-function SimDetailModal({ sim, editMode, editValues, loading, onClose, onEditStart, onEditSave, onEditValueChange, onStatusChange }: SimDetailModalProps) {
-  const [position, setPosition] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  
-  // Tabs & History State
-  const [activeTab, setActiveTab] = useState<'details' | 'history'>('details');
-  const [history, setHistory] = useState<SimHistory[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-
-  const modalRef = React.useRef<HTMLDivElement>(null);
-
-  // Load History when tab changes
-  useEffect(() => {
-    if (activeTab === 'history' && sim.MSISDN) {
-      setHistoryLoading(true);
-      GetSimHistory(sim.MSISDN)
-        .then(data => setHistory(data))
-        .finally(() => setHistoryLoading(false));
-    }
-  }, [activeTab, sim.MSISDN]);
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    // Only drag from header
-    if ((e.target as HTMLElement).closest('.modal-header')) {
-      setIsDragging(true);
-      setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
-      e.preventDefault();
-    }
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (isDragging) {
-      setPosition({
-        x: e.clientX - dragStart.x,
-        y: e.clientY - dragStart.y
-      });
-    }
-  };
-
-  const handleMouseUp = () => {
-    setIsDragging(false);
-  };
-
-  return (
-    <div 
-      className="modal fade show d-block" 
-      style={{backgroundColor: 'rgba(0,0,0,0.5)'}} 
-      tabIndex={-1}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
-    >
-      <div 
-        ref={modalRef}
-        className="modal-dialog modal-lg"
-        style={{
-          transform: `translate(${position.x}px, ${position.y}px)`,
-          margin: '1.75rem auto',
-          transition: isDragging ? 'none' : 'transform 0.1s ease-out'
-        }}
-        onMouseDown={handleMouseDown}
-      >
-        <div className="modal-content bg-dark border-secondary text-light">
-          <div className="modal-header border-secondary" style={{ cursor: 'move', userSelect: 'none' }}>
-            <h5 className="modal-title">📱 SIM Details: {sim.MSISDN}</h5>
-            <button type="button" className="btn-close btn-close-white" onClick={onClose}></button>
-          </div>
-          <div className="modal-body">
-            
-            {/* TABS */}
-            <ul className="nav nav-tabs border-secondary mb-3">
-              <li className="nav-item">
-                <button 
-                  className={`nav-link ${activeTab === 'details' ? 'active bg-dark text-white border-secondary border-bottom-0' : 'text-muted'}`}
-                  onClick={() => setActiveTab('details')}
-                >
-                  📋 Details
-                </button>
-              </li>
-              <li className="nav-item">
-                <button 
-                  className={`nav-link ${activeTab === 'history' ? 'active bg-dark text-white border-secondary border-bottom-0' : 'text-muted'}`}
-                  onClick={() => setActiveTab('history')}
-                >
-                  📜 Status History
-                </button>
-              </li>
-            </ul>
-
-            {activeTab === 'details' ? (
-              editMode ? (
-                <div className="row g-3">
-                  <div className="col-12"><h6 className="text-primary">Edit Labels</h6></div>
-                  <div className="col-md-12">
-                    <label className="form-label text-muted small">Label 1 (SIM Label)</label>
-                    <input type="text" className="form-control bg-dark text-light border-secondary" value={editValues.label1} onChange={e => onEditValueChange('label1', e.target.value)} />
-                  </div>
-                  <div className="col-md-12">
-                    <label className="form-label text-muted small">Label 2 (Group Tag)</label>
-                    <input type="text" className="form-control bg-dark text-light border-secondary" value={editValues.label2} onChange={e => onEditValueChange('label2', e.target.value)} />
-                  </div>
-                  <div className="col-md-12">
-                    <label className="form-label text-muted small">Label 3 (Device Tag)</label>
-                    <input type="text" className="form-control bg-dark text-light border-secondary" value={editValues.label3} onChange={e => onEditValueChange('label3', e.target.value)} />
-                  </div>
-                </div>
-              ) : (
-                <div className="row g-3">
-                  <div className="col-md-6">
-                    <label className="text-muted small">CLI (Local Number)</label>
-                    <div className="fw-bold">{sim.CLI}</div>
-                  </div>
-                  <div className="col-md-6">
-                    <label className="text-muted small">ICCID</label>
-                    <div className="fw-bold text-break">{sim.SIM_SWAP}</div>
-                  </div>
-                  <div className="col-md-6">
-                    <label className="text-muted small">Status</label>
-                    <div>{getStatusBadge(sim.SIM_STATUS_CHANGE, sim._pending, sim.SYNC_STATUS)}</div>
-                  </div>
-                  <div className="col-md-6">
-                    <label className="text-muted small">IMSI</label>
-                    <div className="fw-bold">{sim.IMSI}</div>
-                  </div>
-                  <div className="col-12"><hr className="border-secondary" /><h6 className="text-primary mb-3">Plan & Usage</h6></div>
-                  <div className="col-md-6">
-                    <label className="text-muted small">Rate Plan</label>
-                    <div>{sim.RATE_PLAN_FULL_NAME}</div>
-                  </div>
-                  <div className="col-md-6">
-                    <label className="text-muted small">APN</label>
-                    <div>{sim.APN_NAME}</div>
-                  </div>
-                  <div className="col-md-6">
-                    <label className="text-muted small">IP Address</label>
-                    <div>{sim.IP1 || '-'}</div>
-                  </div>
-                  <div className="col-md-6">
-                    <label className="text-muted small">Monthly Usage</label>
-                    <div>{sim.MONTHLY_USAGE_MB} MB / {sim.ALLOCATED_MB} MB</div>
-                  </div>
-                  <div className="col-12"><hr className="border-secondary" /><h6 className="text-primary mb-3">Labels</h6></div>
-                  <div className="col-md-4">
-                    <label className="text-muted small">Label 1</label>
-                    <div>{sim.CUSTOMER_LABEL_1 || '-'}</div>
-                  </div>
-                  <div className="col-md-4">
-                    <label className="text-muted small">Label 2</label>
-                    <div>{sim.CUSTOMER_LABEL_2 || '-'}</div>
-                  </div>
-                  <div className="col-md-4">
-                    <label className="text-muted small">Label 3</label>
-                    <div>{sim.CUSTOMER_LABEL_3 || '-'}</div>
-                  </div>
-                </div>
-              )
-            ) : (
-              // HISTORY TAB
-              <div className="table-responsive">
-                 {historyLoading ? (
-                   <div className="text-center py-4"><div className="spinner-border text-primary" role="status"></div></div>
-                 ) : (
-                  <table className="table table-dark table-sm table-striped">
-                    <thead>
-                      <tr>
-                        <th>Time</th>
-                        <th>Action</th>
-                        <th>Field</th>
-                        <th>Change</th>
-                        <th>Source</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {history.length > 0 ? (
-                        history.map(h => (
-                          <tr key={h.id}>
-                            <td><small>{new Date(h.created_at).toLocaleString()}</small></td>
-                            <td>{h.action}</td>
-                            <td>{h.field}</td>
-                            <td>
-                              <small className="text-muted">{h.old_value}</small> 
-                              <span className="mx-1">→</span> 
-                              <span className="text-info">{h.new_value}</span>
-                            </td>
-                            <td><span className="badge bg-secondary">{h.source}</span></td>
-                          </tr>
-                        ))
-                      ) : (
-                         <tr><td colSpan={5} className="text-center text-muted">No history records found</td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                 )}
-              </div>
-            )}
-          </div>
-          <div className="modal-footer justify-content-between border-secondary">
-            <div>
-              {(!editMode && activeTab === 'details') && (
-                <div className="btn-group">
-                  <button className="btn btn-outline-success btn-sm" onClick={() => onStatusChange('Activated')} disabled={sim._pending}>Activate</button>
-                  <button className="btn btn-outline-warning btn-sm" onClick={() => onStatusChange('Suspended')} disabled={sim._pending}>Suspend</button>
-                  <button className="btn btn-outline-danger btn-sm" onClick={() => onStatusChange('Terminated')} disabled={sim._pending}>Terminate</button>
-                </div>
-              )}
-            </div>
-            <div className="d-flex gap-2">
-              <button type="button" className="btn btn-secondary" onClick={onClose}>Close</button>
-              {editMode && activeTab === 'details' && (
-                <button type="button" className="btn btn-success" onClick={onEditSave} disabled={loading}>
-                  {loading ? 'Saving...' : 'Save Changes'}
-                </button>
-              )}
-              {!editMode && activeTab === 'details' && (
-                <button type="button" className="btn btn-primary" onClick={onEditStart}>Edit Labels</button>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

@@ -1,0 +1,691 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "EyesOnT Pelephone API",
+    "description": "API documentation for EyesOnT Pelephone Integration",
+    "version": "1.5.2"
+  },
+  "servers": [
+    {
+      "url": "https://eot-portal.pelephone.co.il:8888",
+      "description": "Production Server"
+    }
+  ],
+  "paths": {
+    "/ipa/apis/json/general/login": {
+      "post": {
+        "summary": "Login to the system",
+        "operationId": "login",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/RequestBase"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful login",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "result": {
+                      "type": "string"
+                    },
+                    "sessionId": {
+                      "type": "string"
+                    },
+                    "jwtToken": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ipa/apis/json/general/logout": {
+      "post": {
+        "summary": "Logout from the system",
+        "operationId": "logout",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/RequestBase"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Logout response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseBase"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ipa/apis/json/provisioning/getProvisioningParameterList": {
+      "post": {
+        "summary": "Get list of provisioning parameters",
+        "operationId": "getProvisioningParameterList",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestBase"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "List of parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseBase"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "parameters": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "fieldName": {
+                                "type": "string"
+                              },
+                              "permissionLevel": {
+                                "type": "string"
+                              },
+                              "alias": {
+                                "type": "string"
+                              },
+                              "availableValues": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "value": {
+                                      "type": "integer"
+                                    },
+                                    "name": {
+                                      "type": "string"
+                                    },
+                                    "desc": {
+                                      "type": "string"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ipa/apis/json/provisioning/getProvisioningData": {
+      "post": {
+        "summary": "Get provisioning data (SIMs)",
+        "operationId": "getProvisioningData",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/RequestBase"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "start": {
+                        "type": "integer",
+                        "default": 0
+                      },
+                      "limit": {
+                        "type": "integer",
+                        "default": 50
+                      },
+                      "sortBy": {
+                        "type": "string"
+                      },
+                      "sortDirection": {
+                        "type": "string",
+                        "enum": [
+                          "ASC",
+                          "DESC"
+                        ]
+                      },
+                      "search": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "fieldName": {
+                              "type": "string"
+                            },
+                            "fieldValue": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "List of subscriber data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseBase"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "count": {
+                          "type": "integer"
+                        },
+                        "fieldNames": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "CUSTOMER_NAME": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Customer Name"
+                              },
+                              "SUB_CUSTOMER_NAME": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Sub-Customer Name"
+                              },
+                              "CUSTOMER_NUMBER": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "BAN"
+                              },
+                              "ORDER_NUMBER": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Order Number"
+                              },
+                              "SIM_TYPE": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Subscriber Type"
+                              },
+                              "CLI": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "CLI"
+                              },
+                              "MSISDN": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "MSISDN"
+                              },
+                              "SIM_SWAP": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "ICCID"
+                              },
+                              "IMSI": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "IMSI"
+                              },
+                              "IMEI": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "IMEI"
+                              },
+                              "SIM_STATUS_CHANGE": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "SIM Status",
+                                "enum": [
+                                  "Activated",
+                                  "Pre-Activated",
+                                  "Suspended",
+                                  "Terminated"
+                                ]
+                              },
+                              "RATE_PLAN_CHANGE": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Rate Plan Name"
+                              },
+                              "RATE_PLAN_CHANGE_READ_ONLY": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Rate Plan Name Read Only"
+                              },
+                              "RATE_PLAN_FULL_NAME": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Rate Plan Full Name"
+                              },
+                              "EFFECTIVE_DATE": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Effective Date"
+                              },
+                              "EXPIRATION_DATE": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Expiration Date"
+                              },
+                              "FUTURE_SOC": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Future SOC"
+                              },
+                              "FUTURE_SOC_NAME": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Future SOC Name"
+                              },
+                              "FUTURE_EFFECTIVE_DATE": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Future Effective Date"
+                              },
+                              "FUTURE_EXPIRATION_DATE": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Future Expiration Date"
+                              },
+                              "ONE_TIME_PACKAGE": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "One Time Package"
+                              },
+                              "IS_POOLED": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Is Pooled"
+                              },
+                              "APN_NAME": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "APN Name"
+                              },
+                              "IP1": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "IP Address"
+                              },
+                              "LAST_SESSION_TIME": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Last Session Time"
+                              },
+                              "IN_SESSION": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "in session"
+                              },
+                              "MONTHLY_USAGE_MB": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Monthly data (MB)"
+                              },
+                              "ALLOCATED_MB": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Allocated data (MB)"
+                              },
+                              "PREPAID_DATA_BALANCE": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Prepaid Data Balance(MB)"
+                              },
+                              "BUNDLE_UTILIZATION": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Bundle Utilization"
+                              },
+                              "MONTHLY_USAGE_SMS": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Monthly SMS"
+                              },
+                              "CUSTOMER_LABEL_1": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "SIM Label"
+                              },
+                              "CUSTOMER_LABEL_2": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Group Tag"
+                              },
+                              "CUSTOMER_LABEL_3": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Device Tag"
+                              },
+                              "SIM_REFRESH": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "SIM Refresh"
+                              },
+                              "REFRESH_SUBSCRIBER_USAGES": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Refresh Usages",
+                                "enum": [
+                                  "Yes"
+                                ]
+                              },
+                              "DATA_THROTTLE": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Data Throttling"
+                              },
+                              "peleSubBillStatus": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "Subscriber Balance"
+                              },
+                              "APNHNAME": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "APN HNAME"
+                              },
+                              "APNHLSFI": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "APN IP"
+                              },
+                              "IP2": {
+                                "type": "string",
+                                "nullable": true,
+                                "description": "IP-2"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ipa/apis/json/provisioning/getProvisioningJobList": {
+      "post": {
+        "summary": "Get provisioning jobs",
+        "operationId": "getProvisioningJobList",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/RequestBase"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "start": {
+                        "type": "integer"
+                      },
+                      "limit": {
+                        "type": "integer"
+                      },
+                      "jobId": {
+                        "type": "integer"
+                      },
+                      "jobStatus": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "List of jobs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseBase"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "count": {
+                          "type": "integer"
+                        },
+                        "jobs": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "jobId": {
+                                "type": "integer"
+                              },
+                              "status": {
+                                "type": "string"
+                              },
+                              "requestTime": {
+                                "type": "number"
+                              },
+                              "actions": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "neId": {
+                                      "type": "string"
+                                    },
+                                    "status": {
+                                      "type": "string"
+                                    },
+                                    "actionType": {
+                                      "type": "string"
+                                    },
+                                    "targetValue": {
+                                      "type": "string"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ipa/apis/json/provisioning/updateProvisioningData": {
+      "post": {
+        "summary": "Update subscriber provisioning",
+        "operationId": "updateProvisioningData",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/RequestBase"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "actions": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "actionType",
+                            "targetValue",
+                            "subscribers"
+                          ],
+                          "properties": {
+                            "actionType": {
+                              "type": "string",
+                              "description": "e.g. SIM_STATE_CHANGE, RATE_PLAN_CHANGE"
+                            },
+                            "targetValue": {
+                              "type": "string"
+                            },
+                            "targetId": {
+                              "type": "string"
+                            },
+                            "subscribers": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "neId": {
+                                    "type": "string",
+                                    "description": "MSISDN/CLI"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Update result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseBase"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "requestId": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "RequestBase": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ]
+      },
+      "ResponseBase": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "enum": [
+              "SUCCESS",
+              "REJECTED",
+              "INVALID_REQ",
+              "MISSING_ENTITY",
+              "FAILED"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      }
+    }
+  }
+}

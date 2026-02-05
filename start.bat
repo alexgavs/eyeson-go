@@ -53,8 +53,13 @@ copy /Y "%~dp0eyeson-gui\frontend\dist\index.html" "static\index.html" >nul
 
 :: 4. Build & Start Server
 echo [3/3] Building & Starting Go Server...
+:: Default env values (only if not already set)
+if "%APP_ENV%"=="" set "APP_ENV=dev"
+if "%EYESON_API_BASE_URL%"=="" set "EYESON_API_BASE_URL=https://eot-portal.pelephone.co.il:8888"
+if "%EYESON_SIMULATOR_BASE_URL%"=="" set "EYESON_SIMULATOR_BASE_URL=http://127.0.0.1:8888"
+
 go mod tidy
-go build -o server.exe ./cmd/server
+go build -o eyeson-server.exe ./cmd/server
 if %errorlevel% neq 0 (
     echo [ERROR] Server build failed!
     pause
@@ -65,9 +70,17 @@ echo.
 echo ───────────────────────────────────────────────────────────
 echo   Web UI:     http://localhost:5000
 echo   API Docs:   http://localhost:5000/docs
+echo   Upstream:   Default = Pelephone (env). Switch in Admin UI then restart.
+echo              Env: EYESON_API_BASE_URL, EYESON_SIMULATOR_BASE_URL
 echo ───────────────────────────────────────────────────────────
 echo.
 echo Press Ctrl+C to stop the server
 echo.
 
-server.exe
+if "%DETACHED%"=="1" (
+    echo Starting server in background: DETACHED=1...
+    start "EyesOn Server" /b eyeson-server.exe
+    exit /b 0
+)
+
+eyeson-server.exe
