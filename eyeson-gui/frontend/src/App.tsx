@@ -501,10 +501,16 @@ function App() {
       const jobId = jobFilters.jobId ? parseInt(jobFilters.jobId) : undefined;
       // Загружаем все записи (limit=500)
       const response = await GetJobs(1, 500, jobId, jobFilters.status || undefined);
-      if (response.success) {
-        setAllJobs(response.data || []);
+      // API returns { result: "SUCCESS", count: N, jobs: [...] }
+      if (response.result === 'SUCCESS' || response.jobs) {
+        setAllJobs(response.jobs || []);
         setJobsLoaded(true);
         setJobsPage(1); // Сброс на первую страницу
+      } else if (response.success) {
+        // Fallback for old format
+        setAllJobs(response.data || []);
+        setJobsLoaded(true);
+        setJobsPage(1);
       }
     } catch (e) {
       showToast("Ошибка загрузки jobs: " + e, 'danger');
