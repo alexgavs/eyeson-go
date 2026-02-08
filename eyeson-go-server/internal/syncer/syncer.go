@@ -86,9 +86,12 @@ func (s *Syncer) SyncFull() (int, error) {
 	startTime := time.Now()
 
 	start := 0
-	limit := 500 // Fetch 500 at a time
+	limit := 200 // Fetch 200 at a time, as API might have its own cap
 	totalProcessed := 0
 	var lastErr error
+	totalAvailable := 0 // Total records reported by API
+
+	firstRequest := true
 
 	for {
 		if s.IsPaused() {
@@ -114,6 +117,12 @@ func (s *Syncer) SyncFull() (int, error) {
 			break // Stop sync on error but don't crash
 		}
 
+		// On the first request, get the total count
+		if firstRequest {
+			totalAvailable = resp.Count
+			firstRequest = false
+		}
+
 		if len(resp.Data) == 0 {
 			break // No more data
 		}
@@ -125,10 +134,10 @@ func (s *Syncer) SyncFull() (int, error) {
 		}
 
 		totalProcessed += len(resp.Data)
-		start += limit
+		start += len(resp.Data) // Important: increment by actual number received
 
-		// If we received fewer items than limit, we reached the end
-		if len(resp.Data) < limit {
+		// If we've processed all available records, stop.
+		if totalAvailable > 0 && totalProcessed >= totalAvailable {
 			break
 		}
 
