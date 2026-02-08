@@ -57,6 +57,31 @@ type SimData struct {
 	LastSessionTime  string `json:"LAST_SESSION_TIME"`
 	InSession        string `json:"IN_SESSION"`
 	SyncStatus       string `json:"SYNC_STATUS,omitempty"` // PENDING, PROCESSING, or empty
+
+	// Additional fields from Pelephone API
+	EffectiveDate        string  `json:"EFFECTIVE_DATE"`
+	ExpirationDate       string  `json:"EXPIRATION_DATE"`
+	SimType              string  `json:"SIM_TYPE"`
+	CustomerNumber       string  `json:"CUSTOMER_NUMBER"`
+	CustomerName         string  `json:"CUSTOMER_NAME"`
+	SubCustomerName      string  `json:"SUB_CUSTOMER_NAME"`
+	OrderNumber          string  `json:"ORDER_NUMBER"`
+	MonthlyUsageSMS      string  `json:"MONTHLY_USAGE_SMS"`
+	BundleUtilization    string  `json:"BUNDLE_UTILIZATION"`
+	PrepaidDataBalance   string  `json:"PREPAID_DATA_BALANCE"`
+	DataThrottle         string  `json:"DATA_THROTTLE"`
+	IsPooled             string  `json:"IS_POOLED"`
+	RatePlanChange       string  `json:"RATE_PLAN_CHANGE"`
+	RatePlanChangeRO     string  `json:"RATE_PLAN_CHANGE_READ_ONLY"`
+	OneTimePackage       string  `json:"ONE_TIME_PACKAGE"`
+	FutureSoc            *string `json:"FUTURE_SOC"`
+	FutureSocName        *string `json:"FUTURE_SOC_NAME"`
+	FutureEffectiveDate  *string `json:"FUTURE_EFFECTIVE_DATE"`
+	FutureExpirationDate *string `json:"FUTURE_EXPIRATION_DATE"`
+	ApnHlsfi             *string `json:"APNHLSFI"`
+	ApnHname             *string `json:"APNHNAME"`
+	SimRefresh           string  `json:"SIM_REFRESH"`
+	RefreshSubUsages     string  `json:"REFRESH_SUBSCRIBER_USAGES"`
 }
 
 type GetProvisioningDataResponse struct {

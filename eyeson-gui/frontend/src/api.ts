@@ -258,21 +258,16 @@ export interface Role {
 }
 
 export const GetUsers = async (): Promise<User[]> => {
-    try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`${BASE_URL}/users`, {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
-        
-        const data = await response.json();
-        if (response.ok) return data.data || [];
-        throw new Error(data.error || "Failed to fetch users");
-    } catch (e) {
-        console.error(e);
-        return [];
-    }
+    const token = localStorage.getItem('token');
+    const response = await fetch(`${BASE_URL}/users`, {
+        headers: {
+            'Authorization': `Bearer ${token}`
+        }
+    });
+    
+    const data = await response.json();
+    if (response.ok) return data.data || [];
+    throw new Error(data.error || `Failed to fetch users (${response.status})`);
 };
 
 export const CreateUser = async (user: { username: string; email: string; password: string; role: string }): Promise<{ success: boolean; error?: string }> => {
@@ -354,21 +349,16 @@ export const ResetUserPassword = async (id: number, newPassword: string): Promis
 };
 
 export const GetRoles = async (): Promise<Role[]> => {
-    try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`${BASE_URL}/roles`, {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
-        
-        const data = await response.json();
-        if (response.ok) return data.data || [];
-        throw new Error(data.error || "Failed to fetch roles");
-    } catch (e) {
-        console.error(e);
-        return [];
-    }
+    const token = localStorage.getItem('token');
+    const response = await fetch(`${BASE_URL}/roles`, {
+        headers: {
+            'Authorization': `Bearer ${token}`
+        }
+    });
+    
+    const data = await response.json();
+    if (response.ok) return data.data || [];
+    throw new Error(data.error || `Failed to fetch roles (${response.status})`);
 };
 
 // API Status types
@@ -612,4 +602,111 @@ export const GetSimHistory = async (msisdn: string): Promise<SimHistory[]> => {
         console.error(e);
         return [];
     }
+};
+
+// ==================== GOOGLE OAUTH API ====================
+
+export interface GoogleOAuthConfig {
+    enabled: boolean;
+    client_id?: string;
+}
+
+export interface GoogleStatus {
+    google_linked: boolean;
+    avatar_url?: string;
+    google_email?: string;
+}
+
+export const GetGoogleOAuthConfig = async (): Promise<GoogleOAuthConfig> => {
+    try {
+        const response = await fetch(`${BASE_URL}/auth/google/config`);
+        const data = await response.json();
+        return response.ok ? data : { enabled: false };
+    } catch (e) {
+        console.error('GetGoogleOAuthConfig error:', e);
+        return { enabled: false };
+    }
+};
+
+export const GoogleLogin = () => {
+    window.location.href = `${BASE_URL}/auth/google/login`;
+};
+
+export const GetGoogleStatus = async (): Promise<GoogleStatus> => {
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${BASE_URL}/auth/google/status`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        return response.ok ? data : { google_linked: false };
+    } catch (e) {
+        console.error('GetGoogleStatus error:', e);
+        return { google_linked: false };
+    }
+};
+
+export const LinkGoogleAccount = async (): Promise<{ success: boolean; error?: string }> => {
+    try {
+        const token = localStorage.getItem('token');
+        if (token) {
+            document.cookie = `token=${token}; path=/; max-age=600`;
+        }
+        const response = await fetch(`${BASE_URL}/auth/google/link`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (response.ok && data.redirect_url) {
+            window.location.href = data.redirect_url;
+            return { success: true };
+        }
+        return { success: false, error: data.error || 'Failed to initiate Google linking' };
+    } catch (e) {
+        return { success: false, error: 'Network error: ' + e };
+    }
+};
+
+export const UnlinkGoogleAccount = async (): Promise<{ success: boolean; error?: string }> => {
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${BASE_URL}/auth/google/unlink`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        return response.ok ? { success: true } : { success: false, error: data.error || 'Failed to unlink Google account' };
+    } catch (e) {
+        return { success: false, error: 'Network error: ' + e };
+    }
+};
+
+/**
+ * HandleOAuthCallback checks URL for OAuth callback params (token, user, role, error).
+ * Should be called once on app startup to handle redirect back from Google OAuth.
+ * Returns null if no OAuth params are present.
+ */
+export const HandleOAuthCallback = (): { token?: string; user?: string; role?: string; error?: string } | null => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+    const user = params.get('user');
+    const role = params.get('role');
+    const error = params.get('error');
+
+    if (token || user || role || error) {
+        // Clean URL params
+        const cleanPath = window.location.pathname;
+        window.history.replaceState({}, '', cleanPath);
+
+        if (error) {
+            return { error };
+        }
+
+        if (token && user) {
+            localStorage.setItem('token', token);
+            return { token, user, role: role || 'Viewer' };
+        }
+    }
+
+    return null;
 };

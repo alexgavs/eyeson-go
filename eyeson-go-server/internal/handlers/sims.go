@@ -20,21 +20,28 @@ import (
 )
 
 // Helper to convert DB model to API Response format
+func strPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
 func mapModelToApi(m models.SimCard) models.SimData {
 	// Format floats
 	usage := fmt.Sprintf("%.2f", m.UsageMB)
 	allocated := fmt.Sprintf("%.2f", m.AllocatedMB)
 
 	// Format Time
-	// API format: 2023-10-27 10:00:00
+	// Pelephone API format: DD/MM/YYYY HH:MM (e.g. "05/02/2026 17:12")
 	lastSession := ""
 	if !m.LastSession.IsZero() {
-		lastSession = m.LastSession.Format("2006-01-02 15:04:05")
+		lastSession = m.LastSession.Format("02/01/2006 15:04")
 	}
 
-	inSession := "false"
+	inSession := "no"
 	if m.InSession {
-		inSession = "true"
+		inSession = "yes"
 	}
 
 	return models.SimData{
@@ -54,6 +61,31 @@ func mapModelToApi(m models.SimCard) models.SimData {
 		AllocatedMB:      allocated,
 		LastSessionTime:  lastSession,
 		InSession:        inSession,
+
+		// Additional fields
+		EffectiveDate:      m.EffectiveDate,
+		ExpirationDate:     m.ExpirationDate,
+		SimType:            m.SimType,
+		CustomerNumber:     m.CustomerNumber,
+		CustomerName:       m.CustomerName,
+		SubCustomerName:    m.SubCustomerName,
+		OrderNumber:        m.OrderNumber,
+		MonthlyUsageSMS:    m.MonthlyUsageSMS,
+		BundleUtilization:  m.BundleUtilization,
+		PrepaidDataBalance: m.PrepaidDataBalance,
+		DataThrottle:       m.DataThrottle,
+		IsPooled:           m.IsPooled,
+		RatePlanChange:     m.RatePlanChange,
+		RatePlanChangeRO:   m.RatePlanChangeRO,
+		OneTimePackage:     m.OneTimePackage,
+		FutureSoc:          strPtr(m.FutureSoc),
+		FutureSocName:      strPtr(m.FutureSocName),
+		FutureEffectiveDate:  strPtr(m.FutureEffectiveDate),
+		FutureExpirationDate: strPtr(m.FutureExpirationDate),
+		ApnHname:           strPtr(m.ApnHname),
+		ApnHlsfi:           strPtr(m.ApnHlsfi),
+		SimRefresh:         m.SimRefresh,
+		RefreshSubUsages:   m.RefreshSubUsages,
 	}
 }
 

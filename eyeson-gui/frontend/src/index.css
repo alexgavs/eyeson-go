@@ -173,6 +173,27 @@ body {
   transition: background-color 0.15s ease, color 0.15s ease;
   line-height: 1.5;
   font-size: 14px;
+  /* Prevent body scroll - pages manage their own scrolling */
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Container fills viewport */
+.container-fluid.py-4 {
+  height: calc(100vh - 40px); /* minus body padding */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-top: 0.5rem !important;
+  padding-bottom: 0.5rem !important;
+}
+
+/* Compact table rows for better viewport fitting */
+.table-dark td,
+.table-dark th {
+  padding: 0.35rem 0.5rem !important;
+  font-size: 13px;
+  vertical-align: middle;
 }
 
 /* ============================================

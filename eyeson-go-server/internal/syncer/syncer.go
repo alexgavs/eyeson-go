@@ -282,6 +282,13 @@ func createHistory(sim models.SimCard, field, oldVal, newVal string) models.SimH
 	}
 }
 
+func derefStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 func mapApiToModel(d models.SimData) models.SimCard {
 	// Parse Usage
 	usageVal, _ := strconv.ParseFloat(d.MonthlyUsageMB, 64)
@@ -289,14 +296,14 @@ func mapApiToModel(d models.SimData) models.SimCard {
 
 	// Parse Time
 	var lastSession time.Time
-	// Format example: "2023-10-27 10:00:00" - need to check actual format from user logs if possible
-	// For now, try standard SQL format or continue
-	// Assuming Pelephone sends "YYYY-MM-DD HH:MM:SS"
-	lastSession, _ = time.Parse("2006-01-02 15:04:05", d.LastSessionTime)
+	// Pelephone API sends LAST_SESSION_TIME as "DD/MM/YYYY HH:MM" (e.g. "05/02/2026 17:12")
+	if d.LastSessionTime != "" {
+		lastSession, _ = time.Parse("02/01/2006 15:04", d.LastSessionTime)
+	}
 
 	// Parse InSession
 	inSession := false
-	if d.InSession == "true" || d.InSession == "1" || d.InSession == "True" {
+	if d.InSession == "true" || d.InSession == "1" || d.InSession == "True" || d.InSession == "yes" || d.InSession == "Yes" {
 		inSession = true
 	}
 
@@ -317,6 +324,32 @@ func mapApiToModel(d models.SimData) models.SimCard {
 		AllocatedMB: allocVal,
 		LastSession: lastSession,
 		InSession:   inSession,
+
+		// Additional fields
+		EffectiveDate:      d.EffectiveDate,
+		ExpirationDate:     d.ExpirationDate,
+		SimType:            d.SimType,
+		CustomerNumber:     d.CustomerNumber,
+		CustomerName:       d.CustomerName,
+		SubCustomerName:    d.SubCustomerName,
+		OrderNumber:        d.OrderNumber,
+		MonthlyUsageSMS:    d.MonthlyUsageSMS,
+		BundleUtilization:  d.BundleUtilization,
+		PrepaidDataBalance: d.PrepaidDataBalance,
+		DataThrottle:       d.DataThrottle,
+		IsPooled:           d.IsPooled,
+		RatePlanChange:     d.RatePlanChange,
+		RatePlanChangeRO:   d.RatePlanChangeRO,
+		OneTimePackage:     d.OneTimePackage,
+		FutureSoc:          derefStr(d.FutureSoc),
+		FutureSocName:      derefStr(d.FutureSocName),
+		FutureEffectiveDate:  derefStr(d.FutureEffectiveDate),
+		FutureExpirationDate: derefStr(d.FutureExpirationDate),
+		ApnHname:           derefStr(d.ApnHname),
+		ApnHlsfi:           derefStr(d.ApnHlsfi),
+		SimRefresh:         d.SimRefresh,
+		RefreshSubUsages:   d.RefreshSubUsages,
+
 		LastSyncAt:  time.Now(),
 		IsSyncing:   false,
 	}

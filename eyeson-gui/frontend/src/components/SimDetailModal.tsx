@@ -76,7 +76,7 @@ export function SimDetailModal({
     >
       <div
         ref={modalRef}
-        className="modal-dialog modal-lg"
+        className="modal-dialog modal-xl"
         style={{
           transform: `translate(${position.x}px, ${position.y}px)`,
           margin: '1.75rem auto',
@@ -153,13 +153,26 @@ export function SimDetailModal({
                 </div>
               ) : (
                 <div className="row g-3">
+                  {/* === Identity Section === */}
                   <div className="col-md-6">
                     <label className="text-muted small">CLI (Local Number)</label>
                     <div className="fw-bold">{sim.CLI}</div>
                   </div>
                   <div className="col-md-6">
-                    <label className="text-muted small">ICCID</label>
-                    <div className="fw-bold text-break">{sim.SIM_SWAP}</div>
+                    <label className="text-muted small">MSISDN</label>
+                    <div className="fw-bold">{sim.MSISDN}</div>
+                  </div>
+                  <div className="col-md-6">
+                    <label className="text-muted small">ICCID (SIM Swap)</label>
+                    <div className="fw-bold text-break" style={{ fontSize: '0.85rem' }}>{sim.SIM_SWAP}</div>
+                  </div>
+                  <div className="col-md-6">
+                    <label className="text-muted small">IMSI</label>
+                    <div className="fw-bold">{sim.IMSI}</div>
+                  </div>
+                  <div className="col-md-6">
+                    <label className="text-muted small">IMEI</label>
+                    <div className="fw-bold">{sim.IMEI || '-'}</div>
                   </div>
                   <div className="col-md-6">
                     <label className="text-muted small">Status</label>
@@ -172,16 +185,84 @@ export function SimDetailModal({
                     </div>
                   </div>
                   <div className="col-md-6">
-                    <label className="text-muted small">IMSI</label>
-                    <div className="fw-bold">{sim.IMSI}</div>
+                    <label className="text-muted small">SIM Type</label>
+                    <div>{sim.SIM_TYPE || '-'}</div>
                   </div>
+                  <div className="col-md-6">
+                    <label className="text-muted small">Order Number</label>
+                    <div>{sim.ORDER_NUMBER || '-'}</div>
+                  </div>
+
+                  {/* === Customer Section === */}
                   <div className="col-12">
                     <hr className="border-secondary" />
-                    <h6 className="text-primary mb-3">Plan & Usage</h6>
+                    <h6 className="text-primary mb-3">👤 Customer</h6>
+                  </div>
+                  <div className="col-md-4">
+                    <label className="text-muted small">Customer Number</label>
+                    <div>{sim.CUSTOMER_NUMBER || '-'}</div>
+                  </div>
+                  <div className="col-md-4">
+                    <label className="text-muted small">Customer Name</label>
+                    <div>{sim.CUSTOMER_NAME?.trim() || '-'}</div>
+                  </div>
+                  <div className="col-md-4">
+                    <label className="text-muted small">Sub Customer</label>
+                    <div>{sim.SUB_CUSTOMER_NAME?.trim() || '-'}</div>
+                  </div>
+
+                  {/* === Plan & Usage Section === */}
+                  <div className="col-12">
+                    <hr className="border-secondary" />
+                    <h6 className="text-primary mb-3">📊 Plan & Usage</h6>
                   </div>
                   <div className="col-md-6">
                     <label className="text-muted small">Rate Plan</label>
                     <div>{sim.RATE_PLAN_FULL_NAME}</div>
+                  </div>
+                  <div className="col-md-6">
+                    <label className="text-muted small">Rate Plan Change</label>
+                    <div>{sim.RATE_PLAN_CHANGE || '-'}</div>
+                  </div>
+                  <div className="col-md-6">
+                    <label className="text-muted small">Rate Plan Change (Read Only)</label>
+                    <div>{sim.RATE_PLAN_CHANGE_READ_ONLY || '-'}</div>
+                  </div>
+                  <div className="col-md-6">
+                    <label className="text-muted small">Monthly Data Usage</label>
+                    <div>
+                      {sim.MONTHLY_USAGE_MB} MB / {sim.ALLOCATED_MB} MB
+                    </div>
+                  </div>
+                  <div className="col-md-6">
+                    <label className="text-muted small">Bundle Utilization</label>
+                    <div>{sim.BUNDLE_UTILIZATION || '-'}</div>
+                  </div>
+                  <div className="col-md-6">
+                    <label className="text-muted small">Monthly SMS Usage</label>
+                    <div>{sim.MONTHLY_USAGE_SMS || '0'}</div>
+                  </div>
+                  <div className="col-md-6">
+                    <label className="text-muted small">Prepaid Data Balance</label>
+                    <div>{sim.PREPAID_DATA_BALANCE ? `${sim.PREPAID_DATA_BALANCE} MB` : '-'}</div>
+                  </div>
+                  <div className="col-md-6">
+                    <label className="text-muted small">One-Time Package</label>
+                    <div>{sim.ONE_TIME_PACKAGE || '-'}</div>
+                  </div>
+                  <div className="col-md-6">
+                    <label className="text-muted small">Data Throttle</label>
+                    <div>{sim.DATA_THROTTLE || '-'}</div>
+                  </div>
+                  <div className="col-md-6">
+                    <label className="text-muted small">Is Pooled</label>
+                    <div>{sim.IS_POOLED || '-'}</div>
+                  </div>
+
+                  {/* === Network Section === */}
+                  <div className="col-12">
+                    <hr className="border-secondary" />
+                    <h6 className="text-primary mb-3">🌐 Network & Session</h6>
                   </div>
                   <div className="col-md-6">
                     <label className="text-muted small">APN</label>
@@ -192,14 +273,80 @@ export function SimDetailModal({
                     <div>{sim.IP1 || '-'}</div>
                   </div>
                   <div className="col-md-6">
-                    <label className="text-muted small">Monthly Usage</label>
+                    <label className="text-muted small">In Session</label>
                     <div>
-                      {sim.MONTHLY_USAGE_MB} MB / {sim.ALLOCATED_MB} MB
+                      <span className={`badge ${sim.IN_SESSION === 'yes' || sim.IN_SESSION === 'true' ? 'bg-success' : 'bg-secondary'}`}>
+                        {sim.IN_SESSION === 'yes' || sim.IN_SESSION === 'true' ? '● Online' : '○ Offline'}
+                      </span>
                     </div>
                   </div>
+                  <div className="col-md-6">
+                    <label className="text-muted small">Last Session</label>
+                    <div>{sim.LAST_SESSION_TIME || '-'}</div>
+                  </div>
+                  <div className="col-md-6">
+                    <label className="text-muted small">APN Host Name</label>
+                    <div>{sim.APNHNAME || '-'}</div>
+                  </div>
+                  <div className="col-md-6">
+                    <label className="text-muted small">APN HLSFI</label>
+                    <div>{sim.APNHLSFI || '-'}</div>
+                  </div>
+
+                  {/* === Dates Section === */}
                   <div className="col-12">
                     <hr className="border-secondary" />
-                    <h6 className="text-primary mb-3">Labels</h6>
+                    <h6 className="text-primary mb-3">📅 Dates</h6>
+                  </div>
+                  <div className="col-md-6">
+                    <label className="text-muted small">Effective Date</label>
+                    <div>{sim.EFFECTIVE_DATE || '-'}</div>
+                  </div>
+                  <div className="col-md-6">
+                    <label className="text-muted small">Expiration Date</label>
+                    <div>{sim.EXPIRATION_DATE || '-'}</div>
+                  </div>
+
+                  {/* === Future Plan Section === */}
+                  <div className="col-12">
+                    <hr className="border-secondary" />
+                    <h6 className="text-primary mb-3">🔮 Future Plan</h6>
+                  </div>
+                  <div className="col-md-6">
+                    <label className="text-muted small">Future SOC</label>
+                    <div>{sim.FUTURE_SOC || '-'}</div>
+                  </div>
+                  <div className="col-md-6">
+                    <label className="text-muted small">Future SOC Name</label>
+                    <div>{sim.FUTURE_SOC_NAME || '-'}</div>
+                  </div>
+                  <div className="col-md-6">
+                    <label className="text-muted small">Future Effective Date</label>
+                    <div>{sim.FUTURE_EFFECTIVE_DATE || '-'}</div>
+                  </div>
+                  <div className="col-md-6">
+                    <label className="text-muted small">Future Expiration Date</label>
+                    <div>{sim.FUTURE_EXPIRATION_DATE || '-'}</div>
+                  </div>
+
+                  {/* === Refresh Section === */}
+                  <div className="col-12">
+                    <hr className="border-secondary" />
+                    <h6 className="text-primary mb-3">🔄 Refresh</h6>
+                  </div>
+                  <div className="col-md-6">
+                    <label className="text-muted small">SIM Refresh</label>
+                    <div>{sim.SIM_REFRESH || '-'}</div>
+                  </div>
+                  <div className="col-md-6">
+                    <label className="text-muted small">Refresh Subscriber Usages</label>
+                    <div>{sim.REFRESH_SUBSCRIBER_USAGES || '-'}</div>
+                  </div>
+
+                  {/* === Labels Section === */}
+                  <div className="col-12">
+                    <hr className="border-secondary" />
+                    <h6 className="text-primary mb-3">🏷️ Labels</h6>
                   </div>
                   <div className="col-md-4">
                     <label className="text-muted small">Label 1</label>

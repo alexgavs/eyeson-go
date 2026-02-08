@@ -10,6 +10,7 @@ import (
 	"log"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"eyeson-go-server/internal/database"
@@ -101,19 +102,27 @@ func GetLocalJob(c *fiber.Ctx) error {
 
 	// Map SyncTask status to JobStatus format expected by frontend
 	// SyncTask: PENDING, PROCESSING, COMPLETED, FAILED
-	// Frontend expects: PENDING, IN_PROGRESS, SUCCESS, FAILED
+	// Frontend expects: PENDING, IN_PROGRESS, SUCCESS, FAILED, COMPLETED_WITH_ERROR
 	jobStatus := task.Status
+	errorMsg := ""
 	if jobStatus == "PROCESSING" {
 		jobStatus = "IN_PROGRESS"
 	}
 	if jobStatus == "COMPLETED" {
-		jobStatus = "SUCCESS"
+		// Distinguish real success from "COMPLETED with fatal error" (SKIPPED)
+		if strings.HasPrefix(task.Result, "SKIPPED:") || strings.Contains(task.Result, "Permission Denied") || strings.Contains(task.Result, "FAILED") {
+			jobStatus = "FAILED"
+			errorMsg = strings.TrimPrefix(task.Result, "SKIPPED: ")
+		} else {
+			jobStatus = "SUCCESS"
+		}
 	}
 
-	return c.JSON(fiber.Map{
-		"jobStatus": jobStatus, // Direct object return for GetJobStatus compatibility
+	response := fiber.Map{
+		"jobStatus": jobStatus,
 		"jobId":     task.ID,
-		"data": []fiber.Map{ // Array return for API compatibility if needed
+		"result":    task.Result,
+		"data": []fiber.Map{
 			{
 				"jobId":          task.ID,
 				"jobStatus":      jobStatus,
@@ -121,7 +130,11 @@ func GetLocalJob(c *fiber.Ctx) error {
 				"lastActionTime": task.UpdatedAt,
 			},
 		},
-	})
+	}
+	if errorMsg != "" {
+		response["error"] = errorMsg
+	}
+	return c.JSON(response)
 }
 
 // ExecuteQueueTask executes a queued task immediately

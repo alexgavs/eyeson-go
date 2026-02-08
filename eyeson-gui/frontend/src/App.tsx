@@ -29,7 +29,15 @@ import {
   ManualSyncStatus,
   APIStatusResponse,
   User,
-  Role
+  Role,
+  GetGoogleOAuthConfig,
+  GoogleLogin,
+  GetGoogleStatus,
+  LinkGoogleAccount,
+  UnlinkGoogleAccount,
+  HandleOAuthCallback,
+  GoogleOAuthConfig,
+  GoogleStatus
 } from './api';
 
 import type { NavPage, PendingJob, PendingStatus, Toast } from './types/app';
@@ -70,8 +78,55 @@ function App() {
   // Фильтры и сортировка
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
-  const [pagination, setPagination] = useState({ start: 0, limit: 500 }); // Увеличено до 500 для локальной БД
+  const [pagination, setPagination] = useState({ start: 0, limit: 25 }); // Will be auto-set
   const [sort, setSort] = useState({ by: "", direction: "ASC" });
+  const [pageSizeMode, setPageSizeMode] = useState<'auto' | number>('auto'); // 'auto' = dynamic fit
+
+  // Dynamic page size: measure available viewport and calc rows
+  const TABLE_ROW_HEIGHT = 37; // px per table row (compact)
+  const tableCardRef = useRef<HTMLDivElement>(null);
+
+  const calcAutoPageSize = useCallback(() => {
+    // Total viewport height
+    const vh = window.innerHeight;
+    // Estimate overhead: body padding(40) + navbar(~56+16mb) + stats cards(~120+16mb) + 
+    // bulk actions(~0-50) + search bar(~80+16mb) + table header(~40) + pagination footer(~50) + buffer(20)
+    // More precise: measure from tableCardRef top offset
+    let overhead = 260; // conservative default
+    if (tableCardRef.current) {
+      const rect = tableCardRef.current.getBoundingClientRect();
+      // rect.top = distance from viewport top to table card
+      // Add: table header(~40) + card footer/pagination(~52) + some padding(10)
+      overhead = rect.top + 40 + 52 + 10;
+    }
+    const available = vh - overhead;
+    const rows = Math.max(5, Math.floor(available / TABLE_ROW_HEIGHT));
+    return rows;
+  }, []);
+
+  // Recalculate on resize and on mount
+  useEffect(() => {
+    if (pageSizeMode !== 'auto') return;
+    
+    const updateAutoSize = () => {
+      const newSize = calcAutoPageSize();
+      setPagination(prev => {
+        if (prev.limit !== newSize) {
+          return { ...prev, limit: newSize };
+        }
+        return prev;
+      });
+    };
+    
+    // Use RAF for smoother measurement after render
+    const rafId = requestAnimationFrame(updateAutoSize);
+    
+    window.addEventListener('resize', updateAutoSize);
+    return () => {
+      cancelAnimationFrame(rafId);
+      window.removeEventListener('resize', updateAutoSize);
+    };
+  }, [pageSizeMode, calcAutoPageSize]);
   
   // Выбор
   const [selectedSims, setSelectedSims] = useState<Set<string>>(new Set());
@@ -100,6 +155,8 @@ function App() {
   const [users, setUsers] = useState<User[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [usersLoaded, setUsersLoaded] = useState(false);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersError, setUsersError] = useState<string | null>(null);
   const [showUserModal, setShowUserModal] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [userForm, setUserForm] = useState({ username: '', email: '', password: '', role: 'Viewer' });
@@ -123,6 +180,10 @@ function App() {
   const [manualSyncStatus, setManualSyncStatus] = useState<ManualSyncStatus | null>(null);
   const [manualSyncLoading, setManualSyncLoading] = useState(false);
   const [manualSyncStarting, setManualSyncStarting] = useState(false);
+
+  // Google OAuth
+  const [googleConfig, setGoogleConfig] = useState<GoogleOAuthConfig>({ enabled: false });
+  const [googleStatus, setGoogleStatus] = useState<GoogleStatus>({ google_linked: false });
 
   // Theme
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -235,9 +296,26 @@ function App() {
     localStorage.setItem(STORAGE_KEYS.theme, theme);
   }, [theme]);
 
-  // Проверка сохраненной сессии при загрузке
+  // Проверка сохраненной сессии при загрузке + обработка OAuth callback
   useEffect(() => {
     const checkSession = async () => {
+      // Check for OAuth callback params first
+      const oauthResult = HandleOAuthCallback();
+      if (oauthResult) {
+        if (oauthResult.error) {
+          showToast('Ошибка Google авторизации: ' + oauthResult.error, 'danger');
+        } else if (oauthResult.token && oauthResult.user) {
+          console.log('[OAuth] Logged in via Google, token received.');
+          SessionManager.save('logged_in', oauthResult.user);
+          setUsername(oauthResult.user);
+          setIsLoggedIn(true);
+          showToast('Успешный вход через Google', 'success');
+          setIsCheckingSession(false);
+          return;
+        }
+      }
+
+      // Check for saved session
       const session = SessionManager.load();
       if (session) {
         console.log('[Session] Found saved session, restoring...');
@@ -247,6 +325,9 @@ function App() {
       setIsCheckingSession(false);
     };
     checkSession();
+
+    // Load Google OAuth config
+    GetGoogleOAuthConfig().then(cfg => setGoogleConfig(cfg));
   }, []);
 
   // Сохранение колонок в cookies и localStorage
@@ -275,15 +356,27 @@ function App() {
   }, []);
 
   // Загрузка данных после логина
+  const initialLoadDone = useRef(false);
   useEffect(() => {
-    if (isLoggedIn && !isCheckingSession) {
-      // Сначала загружаем текущую страницу SIM данных
-      loadData(0, pagination.limit).then(() => {
-        // Через 1 секунду загружаем статистику
-        setTimeout(() => loadStats(false), 1000);
-      });
+    if (isLoggedIn && !isCheckingSession && !initialLoadDone.current) {
+      initialLoadDone.current = true;
+      // Delay initial load slightly so auto-size can measure viewport first
+      const timer = setTimeout(() => {
+        const autoSize = pageSizeMode === 'auto' ? calcAutoPageSize() : pagination.limit;
+        loadData(0, autoSize).then(() => {
+          setTimeout(() => loadStats(false), 1000);
+        });
+      }, 50);
+      return () => clearTimeout(timer);
     }
   }, [isLoggedIn, isCheckingSession]);
+
+  // Load Google account status when logged in
+  useEffect(() => {
+    if (isLoggedIn && googleConfig.enabled) {
+      GetGoogleStatus().then(status => setGoogleStatus(status));
+    }
+  }, [isLoggedIn, googleConfig.enabled]);
 
   // Polling для проверки статусов по Job ID (оптимизированный)
   useEffect(() => {
@@ -348,17 +441,28 @@ function App() {
               
               needsRefresh = true;
             } else if (jobStatus === 'FAILED') {
-              console.warn(`✗ Job ${job.requestId} failed`);
-              showToast(`✗ Ошибка изменения статуса`, 'danger');
+              // Extract error message from backend response
+              const errorDetail = jobData.error || jobData.result || '';
+              const errorMsg = errorDetail
+                ? `✗ Ошибка: ${errorDetail}`
+                : `✗ Ошибка изменения статуса`;
+              console.warn(`✗ Job ${job.requestId} failed: ${errorDetail}`);
+              showToast(errorMsg, 'danger');
               
+              // Revert optimistic update — clear pending and reload real data from DB
               setSims(prev => prev.map(s => 
                 job.msisdns.includes(s.MSISDN) ? { ...s, _pending: false } : s
               ));
+              setSelectedSim((prev: any) =>
+                prev && job.msisdns.includes(prev.MSISDN) ? { ...prev, _pending: false } : prev
+              );
               setPendingStatuses(prev => {
                 const newMap = new Map(prev);
                 job.msisdns.forEach(m => newMap.delete(m));
                 return newMap;
               });
+
+              needsRefresh = true; // Reload from DB to revert optimistic status
             } else if (job.attempts >= 10) {
               console.warn(`✗ Job ${job.requestId} polling timeout`);
               showToast(`⚠ Таймаут ожидания подтверждения`, 'warning');
@@ -467,14 +571,34 @@ function App() {
     setLoading(false);
   };
 
+  // Reload data when auto limit changes (debounced)
+  const prevLimitRef = useRef(pagination.limit);
+  useEffect(() => {
+    if (!isLoggedIn || navPage !== 'sims') return;
+    if (prevLimitRef.current === pagination.limit) return;
+    prevLimitRef.current = pagination.limit;
+    
+    // When limit changes, reload from page 0 with new limit
+    const timer = setTimeout(() => {
+      loadData(0, pagination.limit);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [pagination.limit, isLoggedIn, navPage]);
+
   const handleLogout = () => {
     SessionManager.clear();
+    localStorage.removeItem('token');
     setIsLoggedIn(false);
     setUsername("");
     setPassword("");
     setSims([]);
     setAllSimsData([]);
     setStatsLoaded(false);
+    setUsersLoaded(false);
+    setUsers([]);
+    setRoles([]);
+    setUsersError(null);
+    setNavPage('sims');
     showToast('Вы вышли из системы', 'info');
   };
 
@@ -539,13 +663,21 @@ function App() {
   // ==================== USER MANAGEMENT ====================
   
   const loadUsers = useCallback(async () => {
+    setUsersLoading(true);
+    setUsersError(null);
     try {
       const [usersData, rolesData] = await Promise.all([GetUsers(), GetRoles()]);
+      console.log('[Admin] Loaded users:', usersData.length, 'roles:', rolesData.length);
       setUsers(usersData);
       setRoles(rolesData);
       setUsersLoaded(true);
-    } catch (e) {
-      showToast("Ошибка загрузки пользователей: " + e, 'danger');
+    } catch (e: any) {
+      console.error('[Admin] Error loading users:', e);
+      const msg = e?.message || String(e);
+      setUsersError(msg);
+      showToast("Ошибка загрузки пользователей: " + msg, 'danger');
+    } finally {
+      setUsersLoading(false);
     }
   }, [showToast]);
 
@@ -796,8 +928,16 @@ function App() {
   };
 
   const handleLimitChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newLimit = parseInt(e.target.value);
-    loadData(0, newLimit);
+    const val = e.target.value;
+    if (val === 'auto') {
+      setPageSizeMode('auto');
+      const autoSize = calcAutoPageSize();
+      loadData(0, autoSize);
+    } else {
+      const newLimit = parseInt(val);
+      setPageSizeMode(newLimit);
+      loadData(0, newLimit);
+    }
   };
 
   const toggleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1204,6 +1344,27 @@ function App() {
                 {loading ? "Вход..." : "Войти"}
               </button>
             </form>
+
+            {/* Google OAuth Login */}
+            {googleConfig.enabled && (
+              <div className="mt-3">
+                <div className="text-center text-muted mb-2">
+                  <small>— или —</small>
+                </div>
+                <button 
+                  className="btn btn-outline-light w-100 d-flex align-items-center justify-content-center gap-2"
+                  onClick={() => GoogleLogin()}
+                >
+                  <svg width="18" height="18" viewBox="0 0 48 48">
+                    <path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24c0,11.045,8.955,20,20,20c11.045,0,20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"/>
+                    <path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"/>
+                    <path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"/>
+                    <path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z"/>
+                  </svg>
+                  Войти через Google
+                </button>
+              </div>
+            )}
           </div>
         </div>
         
@@ -1216,7 +1377,7 @@ function App() {
   return (
     <div className="container-fluid py-4">
       {/* Навигация */}
-      <nav className="navbar navbar-expand navbar-dark bg-dark mb-4 rounded">
+      <nav className="navbar navbar-expand navbar-dark bg-dark mb-2 rounded">
         <div className="container-fluid">
           <span className="navbar-brand">EyesOn</span>
           <ul className="navbar-nav">
@@ -1252,6 +1413,7 @@ function App() {
                 📊 Statistics
               </button>
             </li>
+            {isAdmin && (
             <li className="nav-item">
               <button 
                 className={`nav-link btn btn-link ${navPage === 'admin' ? 'active fw-bold' : ''}`}
@@ -1260,6 +1422,7 @@ function App() {
                 ⚙️ Admin
               </button>
             </li>
+            )}
             <li className="nav-item">
               <button 
                 className={`nav-link btn btn-link ${navPage === 'profile' ? 'active fw-bold' : ''}`}
@@ -1298,15 +1461,15 @@ function App() {
 
       {/* Страница SIM */}
       {navPage === 'sims' && (
-        <>
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minHeight: 0 }}>
           {/* Заголовок */}
-          <div className="d-flex justify-content-between align-items-center mb-4">
+          <div className="d-flex justify-content-between align-items-center mb-2">
             <h1 className="h3 mb-0 text-white">SIM Management</h1>
           </div>
 
           {/* Статистика */}
           {stats && (
-            <div className="row row-cols-2 row-cols-md-5 g-3 mb-4">
+            <div className="row row-cols-2 row-cols-md-5 g-2 mb-2">
               <div className="col">
                 <div className="card bg-dark border-primary h-100">
                   <div className="card-body">
@@ -1365,8 +1528,8 @@ function App() {
           )}
 
           {/* Поиск и фильтры */}
-          <div className="card mb-4">
-            <div className="card-body">
+          <div className="card mb-2">
+            <div className="card-body py-2">
               <form onSubmit={handleSearch} className="row g-3 align-items-center">
                 <div className="col-md-6 col-lg-4 flex-grow-1">
                   <div className="input-group">
@@ -1405,8 +1568,8 @@ function App() {
           </div>
 
           {/* Таблица */}
-          <div className="card mb-4">
-            <div className="table-responsive">
+          <div className="card mb-0" ref={tableCardRef} style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minHeight: 0 }}>
+            <div className="table-responsive" style={{ flex: 1, overflow: 'auto' }}>
               <table className="table table-dark table-hover mb-0">
                 <thead onContextMenu={handleHeaderContextMenu}>
                   <tr>
@@ -1486,10 +1649,11 @@ function App() {
             </div>
             
             {/* Пагинация */}
-            <div className="card-footer d-flex justify-content-between align-items-center py-3">
+            <div className="card-footer d-flex justify-content-between align-items-center py-2">
               <div className="d-flex align-items-center gap-2">
                 <span className="text-muted small">Show:</span>
-                <select className="form-select form-select-sm" style={{width: '70px'}} value={pagination.limit} onChange={handleLimitChange}>
+                <select className="form-select form-select-sm" style={{width: '90px'}} value={pageSizeMode === 'auto' ? 'auto' : pagination.limit} onChange={handleLimitChange}>
+                  <option value="auto">Auto ({pageSizeMode === 'auto' ? pagination.limit : calcAutoPageSize()})</option>
                   <option value="25">25</option>
                   <option value="50">50</option>
                   <option value="100">100</option>
@@ -1632,12 +1796,12 @@ function App() {
               onStatusChange={handleSingleStatus}
             />
           )}
-        </>
+        </div>
       )}
 
       {/* Страница Jobs - Pelephone API Jobs */}
       {navPage === 'jobs' && (
-        <div>
+        <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
           <div className="d-flex justify-content-between align-items-center mb-4">
             <h1 className="h3 mb-0 text-white">Pelephone Provisioning Jobs</h1>
             <button className="btn btn-outline-light btn-sm" onClick={() => { setJobsLoaded(false); loadJobs(true); }}>
@@ -1911,7 +2075,7 @@ function App() {
 
       {/* Страница Statistics */}
       {navPage === 'stats' && (
-        <div>
+        <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
           <div className="d-flex justify-content-between align-items-center mb-4">
             <h1 className="h3 mb-0 text-white">📊 Statistics Dashboard</h1>
             <button className="btn btn-outline-light btn-sm" onClick={() => { setStatsLoaded(false); loadStats(true); }}>
@@ -2042,7 +2206,7 @@ function App() {
 
       {/* Страница Admin */}
       {navPage === 'admin' && (
-        <div>
+        <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
           <div className="d-flex justify-content-between align-items-center mb-4">
             <h1 className="h3 mb-0 text-white">⚙️ Admin Panel</h1>
             <button className="btn btn-outline-light btn-sm" onClick={() => { setUsersLoaded(false); loadUsers(); }}>
@@ -2073,7 +2237,21 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {users.length > 0 ? users.map(user => (
+                    {usersLoading ? (
+                      <tr>
+                        <td colSpan={7} className="text-center py-4">
+                          <div className="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+                          Загрузка пользователей...
+                        </td>
+                      </tr>
+                    ) : usersError ? (
+                      <tr>
+                        <td colSpan={7} className="text-center py-4">
+                          <div className="text-danger mb-2">❌ {usersError}</div>
+                          <button className="btn btn-outline-primary btn-sm" onClick={() => { setUsersLoaded(false); loadUsers(); }}>🔄 Retry</button>
+                        </td>
+                      </tr>
+                    ) : users.length > 0 ? users.map(user => (
                       <tr key={user.id}>
                         <td>{user.id}</td>
                         <td><strong>{user.username}</strong></td>
@@ -2113,7 +2291,7 @@ function App() {
                     )) : (
                       <tr>
                         <td colSpan={7} className="text-center py-4 text-muted">
-                          {loading ? 'Loading...' : 'No users found'}
+                          No users found
                         </td>
                       </tr>
                     )}
@@ -2571,7 +2749,7 @@ function App() {
 
       {/* Страница Profile */}
       {navPage === 'profile' && (
-        <div>
+        <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
           <div className="d-flex justify-content-between align-items-center mb-4">
             <h1 className="h3 mb-0 text-white">👤 User Profile</h1>
           </div>
@@ -2643,6 +2821,79 @@ function App() {
                 </div>
               </div>
             </div>
+
+            {/* Google Account Card */}
+            {googleConfig.enabled && (
+              <div className="col-md-12">
+                <div className="card bg-dark border-secondary">
+                  <div className="card-header border-secondary d-flex align-items-center gap-2">
+                    <svg width="24" height="24" viewBox="0 0 48 48">
+                      <path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24c0,11.045,8.955,20,20,20c11.045,0,20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"/>
+                      <path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"/>
+                      <path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"/>
+                      <path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z"/>
+                    </svg>
+                    <h5 className="mb-0">Google Account</h5>
+                  </div>
+                  <div className="card-body">
+                    {googleStatus.google_linked ? (
+                      <div>
+                        <div className="d-flex align-items-center mb-3">
+                          {googleStatus.avatar_url && (
+                            <img src={googleStatus.avatar_url} alt="Google Avatar" className="rounded-circle me-3" style={{width: '48px', height: '48px'}} />
+                          )}
+                          <div>
+                            <div className="text-success fw-bold">
+                              <span className="badge bg-success me-2">✓ Привязан</span>
+                            </div>
+                            {googleStatus.google_email && (
+                              <div className="text-muted small">{googleStatus.google_email}</div>
+                            )}
+                          </div>
+                        </div>
+                        <button 
+                          className="btn btn-outline-danger btn-sm"
+                          onClick={async () => {
+                            if (window.confirm('Отвязать Google аккаунт?')) {
+                              const result = await UnlinkGoogleAccount();
+                              if (result.success) {
+                                setGoogleStatus({ google_linked: false });
+                                showToast('Google аккаунт отвязан', 'success');
+                              } else {
+                                showToast('Ошибка: ' + (result.error || 'Не удалось отвязать'), 'danger');
+                              }
+                            }
+                          }}
+                        >
+                          🔓 Отвязать Google
+                        </button>
+                      </div>
+                    ) : (
+                      <div>
+                        <p className="text-muted mb-3">Google аккаунт не привязан. Привяжите для быстрого входа.</p>
+                        <button 
+                          className="btn btn-outline-light d-flex align-items-center gap-2"
+                          onClick={async () => {
+                            const result = await LinkGoogleAccount();
+                            if (!result.success) {
+                              showToast('Ошибка: ' + (result.error || 'Не удалось начать привязку'), 'danger');
+                            }
+                          }}
+                        >
+                          <svg width="18" height="18" viewBox="0 0 48 48">
+                            <path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24c0,11.045,8.955,20,20,20c11.045,0,20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"/>
+                            <path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"/>
+                            <path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"/>
+                            <path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z"/>
+                          </svg>
+                          Привязать Google аккаунт
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Preferences Card */}
             <div className="col-md-12">

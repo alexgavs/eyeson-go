@@ -67,6 +67,31 @@ type SimCard struct {
 	LastSession time.Time `json:"last_session"`
 	InSession   bool      `json:"in_session"`
 
+	// Additional Pelephone fields
+	EffectiveDate      string  `json:"effective_date"`
+	ExpirationDate     string  `json:"expiration_date"`
+	SimType            string  `gorm:"size:20" json:"sim_type"`
+	CustomerNumber     string  `gorm:"index;size:20" json:"customer_number"`
+	CustomerName       string  `gorm:"size:200" json:"customer_name"`
+	SubCustomerName    string  `gorm:"size:200" json:"sub_customer_name"`
+	OrderNumber        string  `gorm:"size:30" json:"order_number"`
+	MonthlyUsageSMS    string  `json:"monthly_usage_sms"`
+	BundleUtilization  string  `json:"bundle_utilization"`
+	PrepaidDataBalance string  `json:"prepaid_data_balance"`
+	DataThrottle       string  `gorm:"size:10" json:"data_throttle"`
+	IsPooled           string  `gorm:"size:10" json:"is_pooled"`
+	RatePlanChange     string  `gorm:"size:100" json:"rate_plan_change"`
+	RatePlanChangeRO   string  `gorm:"size:100" json:"rate_plan_change_ro"`
+	OneTimePackage     string  `gorm:"size:100" json:"one_time_package"`
+	FutureSoc          string  `json:"future_soc"`
+	FutureSocName      string  `json:"future_soc_name"`
+	FutureEffectiveDate  string `json:"future_effective_date"`
+	FutureExpirationDate string `json:"future_expiration_date"`
+	ApnHname           string  `json:"apn_hname"`
+	ApnHlsfi           string  `json:"apn_hlsfi"`
+	SimRefresh         string  `gorm:"size:20" json:"sim_refresh"`
+	RefreshSubUsages   string  `gorm:"size:20" json:"refresh_sub_usages"`
+
 	// Sync Metadata
 	LastSyncAt time.Time `gorm:"index" json:"last_sync_at"`
 	IsSyncing  bool      `gorm:"default:false" json:"is_syncing"`
