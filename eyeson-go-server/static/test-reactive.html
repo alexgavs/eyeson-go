@@ -136,11 +136,47 @@
         
         .search-live { display: flex; gap: 8px; align-items: center; }
         .search-live input { flex: 1; width: auto; }
-        .search-indicator { font-size: .75rem; color: var(--text-muted); }
-        
+        .search-indicator { font-size: .75rem; color: var(--text-muted); min-width: 120px; text-align: right; }
+
+        /* Reactive Search Table */
+        .search-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+        .search-controls select { padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: .875rem; outline: none; background: white; }
+        .search-controls select:focus { border-color: var(--primary); }
+        .search-input-wrap { flex: 1; position: relative; min-width: 200px; }
+        .search-input-wrap input { width: 100%; padding-right: 32px; }
+        .search-clear { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 1rem; padding: 0 4px; line-height: 1; }
+        .search-clear:hover { color: var(--danger); }
+        .search-meta { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; font-size: .8rem; color: var(--text-muted); }
+        .search-meta .count { font-weight: 600; color: var(--text); }
+        .search-meta .latency { font-family: var(--mono); }
+        .search-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin .6s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .sim-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+        .sim-table th { background: #f8fafc; padding: 8px 10px; text-align: left; font-weight: 600; color: var(--text-muted); border-bottom: 2px solid var(--border); font-size: .75rem; text-transform: uppercase; letter-spacing: .5px; white-space: nowrap; cursor: pointer; user-select: none; }
+        .sim-table th:hover { color: var(--primary); }
+        .sim-table th .sort-arrow { font-size: .65rem; margin-left: 2px; opacity: .4; }
+        .sim-table th.sorted .sort-arrow { opacity: 1; color: var(--primary); }
+        .sim-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+        .sim-table tr:hover td { background: #f1f5f9; }
+        .sim-table .highlight { background: #fef08a; border-radius: 2px; padding: 0 1px; }
+        .sim-table .status-pill { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: .72rem; font-weight: 600; }
+        .sim-table .status-pill.activated { background: #dcfce7; color: #166534; }
+        .sim-table .status-pill.suspended { background: #fee2e2; color: #991b1b; }
+        .sim-table .status-pill.preactive { background: #fef3c7; color: #92400e; }
+        .sim-table .status-pill.deactivated { background: #f1f5f9; color: #64748b; }
+        .sim-table .mono { font-family: var(--mono); font-size: .78rem; }
+        .search-empty { text-align: center; padding: 32px 16px; color: var(--text-muted); }
+        .search-empty .icon { font-size: 2rem; margin-bottom: 8px; }
+        .search-kbd { display: inline-block; background: #f1f5f9; border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-size: .7rem; font-family: var(--mono); color: var(--text-muted); margin-left: 4px; vertical-align: middle; }
+        .search-table-wrap { max-height: 420px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
+        .search-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: .78rem; color: var(--text-muted); }
+        .search-footer button { font-size: .78rem; padding: 4px 10px; }
+
         @media (max-width: 768px) {
             .grid { grid-template-columns: 1fr; }
             .metrics-row { flex-direction: column; }
+            .search-controls { flex-direction: column; }
         }
     </style>
 </head>
@@ -208,20 +244,37 @@
         </div>
 
         <!-- Reactive Search -->
-        <div class="card">
+        <div class="card full">
             <div class="card-header">
                 <div class="num">3</div>
                 <h3>Reactive Debounced Search</h3>
+                <span style="margin-left:auto; font-size:.75rem; color:var(--text-muted);">Pipeline: <code>Debounce(300ms) &rarr; Distinct &rarr; LIKE Query</code></span>
             </div>
             <div class="card-body">
-                <p style="font-size:.85rem; color:var(--text-muted); margin-bottom:12px;">
-                    Pipeline: <code>Debounce(300ms) &rarr; Distinct &rarr; LIKE Query</code>
-                </p>
-                <div class="search-live">
-                    <input type="text" id="searchQuery" placeholder="Search ICCID / MSISDN / IMSI..." style="width:100%;" oninput="onSearchInput(this.value)" />
+                <div class="search-controls">
+                    <select id="searchField" onchange="onSearchFieldChange()">
+                        <option value="all">All fields</option>
+                        <option value="msisdn">MSISDN</option>
+                        <option value="cli">CLI</option>
+                        <option value="iccid">ICCID</option>
+                        <option value="imsi">IMSI</option>
+                        <option value="status">Status</option>
+                        <option value="rate_plan">Rate Plan</option>
+                    </select>
+                    <div class="search-input-wrap">
+                        <input type="text" id="searchQuery" placeholder="Start typing to search SIMs..." oninput="onSearchInput(this.value)" onkeydown="onSearchKeydown(event)" autocomplete="off" />
+                        <button class="search-clear" id="searchClearBtn" onclick="clearSearch()" title="Clear (Esc)" style="display:none;">&times;</button>
+                    </div>
                     <span class="search-indicator" id="searchIndicator"></span>
                 </div>
-                <div id="searchResult"></div>
+                <div id="searchResult">
+                    <div class="search-empty">
+                        <div class="icon">&#128269;</div>
+                        Type at least 2 characters to search<br>
+                        <small>Searches across ICCID, MSISDN, IMSI, CLI &bull; Debounce: 300ms</small><br>
+                        <span class="search-kbd">Esc</span> clear &nbsp; <span class="search-kbd">Enter</span> instant search
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -272,7 +325,7 @@
                 <div id="testSuite" style="margin-top:12px;">
                     <div class="test-row"><span class="test-name">POST /auth/login &mdash; Authentication</span><span class="test-status skip" id="t1">&mdash;</span><span class="test-time" id="t1t"></span></div>
                     <div class="test-row"><span class="test-name">GET /reactive/sims &mdash; Stream SIM list</span><span class="test-status skip" id="t2">&mdash;</span><span class="test-time" id="t2t"></span></div>
-                    <div class="test-row"><span class="test-name">GET /reactive/search?q=972 &mdash; Debounced search</span><span class="test-status skip" id="t3">&mdash;</span><span class="test-time" id="t3t"></span></div>
+                    <div class="test-row"><span class="test-name">GET /reactive/search?q=972 + field:query &mdash; Reactive search (all + field-specific)</span><span class="test-status skip" id="t3">&mdash;</span><span class="test-time" id="t3t"></span></div>
                     <div class="test-row"><span class="test-name">GET /reactive/stats &mdash; Aggregated stats</span><span class="test-status skip" id="t4">&mdash;</span><span class="test-time" id="t4t"></span></div>
                     <div class="test-row"><span class="test-name">GET /reactive/events &mdash; SSE connection</span><span class="test-status skip" id="t5">&mdash;</span><span class="test-time" id="t5t"></span></div>
                     <div class="test-row"><span class="test-name">GET /stats &mdash; Backend stats (compare)</span><span class="test-status skip" id="t6">&mdash;</span><span class="test-time" id="t6t"></span></div>
@@ -673,36 +726,163 @@ Invoke-RestMethod -Uri "http://localhost:5000/api/v1/reactive/search?q=972" `
         }
     }
 
+    // ── Reactive Search State ──
+    var searchLastQuery = '';
+    var searchSortCol = '';
+    var searchSortDir = 'asc';
+    var searchResults = [];
+    var searchStats = { queries: 0, totalMs: 0 };
+
     function onSearchInput(val) {
         clearTimeout(searchDebounce);
-        document.getElementById('searchIndicator').textContent = 'typing...';
+        var clearBtn = document.getElementById('searchClearBtn');
+        clearBtn.style.display = val.length > 0 ? 'block' : 'none';
         if (val.length < 2) {
-            document.getElementById('searchResult').innerHTML = '';
-            document.getElementById('searchIndicator').textContent = '';
+            document.getElementById('searchIndicator').textContent = val.length === 1 ? '1 more char...' : '';
+            if (val.length === 0) showSearchEmpty();
             return;
         }
+        if (val === searchLastQuery) return; // distinct
+        document.getElementById('searchIndicator').innerHTML = '<span class="search-spinner"></span> debouncing...';
         searchDebounce = setTimeout(function() {
-            document.getElementById('searchIndicator').textContent = 'searching...';
+            document.getElementById('searchIndicator').innerHTML = '<span class="search-spinner"></span> searching...';
             doSearch(val);
-        }, 350);
+        }, 300);
+    }
+
+    function onSearchKeydown(e) {
+        if (e.key === 'Escape') { clearSearch(); e.preventDefault(); }
+        if (e.key === 'Enter') {
+            clearTimeout(searchDebounce);
+            var val = document.getElementById('searchQuery').value;
+            if (val.length >= 2) {
+                document.getElementById('searchIndicator').innerHTML = '<span class="search-spinner"></span> searching...';
+                doSearch(val);
+            }
+            e.preventDefault();
+        }
+    }
+
+    function onSearchFieldChange() {
+        var val = document.getElementById('searchQuery').value;
+        if (val.length >= 2) {
+            document.getElementById('searchIndicator').innerHTML = '<span class="search-spinner"></span> searching...';
+            doSearch(val);
+        }
+    }
+
+    function clearSearch() {
+        document.getElementById('searchQuery').value = '';
+        document.getElementById('searchClearBtn').style.display = 'none';
+        document.getElementById('searchIndicator').textContent = '';
+        searchLastQuery = '';
+        searchResults = [];
+        showSearchEmpty();
+    }
+
+    function showSearchEmpty() {
+        document.getElementById('searchResult').innerHTML = '<div class="search-empty"><div class="icon">&#128269;</div>Type at least 2 characters to search<br><small>Searches across ICCID, MSISDN, IMSI, CLI &bull; Debounce: 300ms</small><br><span class="search-kbd">Esc</span> clear &nbsp; <span class="search-kbd">Enter</span> instant search</div>';
+    }
+
+    function highlightText(text, query) {
+        if (!text || !query) return text || '';
+        var str = String(text);
+        var idx = str.toLowerCase().indexOf(query.toLowerCase());
+        if (idx === -1) return str;
+        return str.substring(0, idx) + '<span class="highlight">' + str.substring(idx, idx + query.length) + '</span>' + str.substring(idx + query.length);
+    }
+
+    function statusPillClass(status) {
+        if (!status) return '';
+        var s = status.toLowerCase();
+        if (s.indexOf('activ') === 0) return 'activated';
+        if (s.indexOf('suspend') === 0) return 'suspended';
+        if (s.indexOf('preact') === 0) return 'preactive';
+        if (s.indexOf('deact') === 0) return 'deactivated';
+        return '';
+    }
+
+    function sortSearchResults(col) {
+        if (searchSortCol === col) {
+            searchSortDir = searchSortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+            searchSortCol = col;
+            searchSortDir = 'asc';
+        }
+        searchResults.sort(function(a, b) {
+            var va = (a[col] || '').toString().toLowerCase();
+            var vb = (b[col] || '').toString().toLowerCase();
+            if (va < vb) return searchSortDir === 'asc' ? -1 : 1;
+            if (va > vb) return searchSortDir === 'asc' ? 1 : -1;
+            return 0;
+        });
+        renderSearchTable(searchLastQuery);
+    }
+
+    function renderSearchTable(query) {
+        var el = document.getElementById('searchResult');
+        if (searchResults.length === 0) {
+            el.innerHTML = '<div class="search-empty"><div class="icon">&#128528;</div>No results for &ldquo;' + query + '&rdquo;</div>';
+            return;
+        }
+        var cols = [
+            { key: 'msisdn', label: 'MSISDN' },
+            { key: 'cli', label: 'CLI' },
+            { key: 'iccid', label: 'ICCID' },
+            { key: 'imsi', label: 'IMSI' },
+            { key: 'status', label: 'Status' },
+            { key: 'rate_plan', label: 'Rate Plan' },
+            { key: 'customer_name', label: 'Customer' }
+        ];
+        var html = '<div class="search-table-wrap"><table class="sim-table"><thead><tr>';
+        cols.forEach(function(c) {
+            var sorted = searchSortCol === c.key;
+            var arrow = sorted ? (searchSortDir === 'asc' ? '&#9650;' : '&#9660;') : '&#8597;';
+            html += '<th class="' + (sorted ? 'sorted' : '') + '" onclick="sortSearchResults(\'' + c.key + '\')">' + c.label + ' <span class="sort-arrow">' + arrow + '</span></th>';
+        });
+        html += '</tr></thead><tbody>';
+        var maxRows = 100;
+        var shown = Math.min(searchResults.length, maxRows);
+        for (var i = 0; i < shown; i++) {
+            var r = searchResults[i];
+            html += '<tr>';
+            cols.forEach(function(c) {
+                var val = r[c.key] || '';
+                if (c.key === 'status') {
+                    html += '<td><span class="status-pill ' + statusPillClass(val) + '">' + val + '</span></td>';
+                } else if (c.key === 'msisdn' || c.key === 'cli' || c.key === 'iccid' || c.key === 'imsi') {
+                    html += '<td class="mono">' + highlightText(val, query) + '</td>';
+                } else {
+                    html += '<td>' + highlightText(val, query) + '</td>';
+                }
+            });
+            html += '</tr>';
+        }
+        html += '</tbody></table></div>';
+        if (searchResults.length > maxRows) {
+            html += '<div class="search-footer"><span>Showing ' + maxRows + ' of ' + searchResults.length + ' results</span></div>';
+        }
+        el.innerHTML = html;
     }
 
     async function doSearch(query) {
-        if (!token) return;
+        if (!token) { document.getElementById('searchIndicator').textContent = 'login first'; return; }
+        var field = document.getElementById('searchField').value;
+        var searchParam = field === 'all' ? query : field + ':' + query;
+        searchLastQuery = query;
         var start = performance.now();
         try {
-            var res = await fetch('/api/v1/reactive/search?q=' + encodeURIComponent(query), { headers: authHeaders() });
+            var res = await fetch('/api/v1/reactive/search?q=' + encodeURIComponent(searchParam), { headers: authHeaders() });
             var data = await res.json();
             var ms = Math.round(performance.now() - start);
-            document.getElementById('searchIndicator').textContent = data.count + ' results (' + ms + 'ms)';
-            var el = document.getElementById('searchResult');
-            if (data.count > 0) {
-                el.innerHTML = '<div class="result-box success"><strong>' + data.count + ' results</strong> for "' + data.query + '" in ' + ms + 'ms<pre>' + JSON.stringify(data.results.slice(0, 3), null, 2) + '</pre></div>';
-            } else {
-                el.innerHTML = '<div class="result-box warn">No results for "' + data.query + '" (' + ms + 'ms)</div>';
-            }
+            searchStats.queries++;
+            searchStats.totalMs += ms;
+            var avgMs = Math.round(searchStats.totalMs / searchStats.queries);
+            searchResults = data.results || [];
+            document.getElementById('searchIndicator').innerHTML = '<span class="count">' + data.count + '</span> results &bull; <span class="latency">' + ms + 'ms</span> <small>(avg ' + avgMs + 'ms)</small>';
+            renderSearchTable(query);
         } catch (err) {
-            document.getElementById('searchIndicator').textContent = 'error';
+            document.getElementById('searchIndicator').textContent = 'error: ' + err.message;
             document.getElementById('searchResult').innerHTML = '<div class="result-box error">' + err.message + '</div>';
         }
     }
@@ -809,6 +989,13 @@ Invoke-RestMethod -Uri "http://localhost:5000/api/v1/reactive/search?q=972" `
         await runTest('t3', async function() {
             var res = await fetch('/api/v1/reactive/search?q=972', { headers: authHeaders() });
             if (!res.ok) throw new Error('Status ' + res.status);
+            var data = await res.json();
+            if (!data.count || data.count < 1) throw new Error('No results for "972"');
+            if (data.field !== 'all') throw new Error('Expected field=all, got ' + data.field);
+            // Also test field-specific search
+            var res2 = await fetch('/api/v1/reactive/search?q=msisdn:972', { headers: authHeaders() });
+            var data2 = await res2.json();
+            if (data2.field !== 'msisdn') throw new Error('Field-specific: expected field=msisdn, got ' + data2.field);
         });
 
         await runTest('t4', async function() {

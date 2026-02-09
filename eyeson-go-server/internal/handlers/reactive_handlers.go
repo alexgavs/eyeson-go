@@ -14,6 +14,7 @@ import (
 	"eyeson-go-server/internal/reactive"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -129,37 +130,74 @@ func ReactiveSimsListHandler(c *fiber.Ctx) error {
 }
 
 // ReactiveSimSearchHandler performs search via direct DB query.
-// Note: Server-side Debounce is unsuitable for single HTTP request/response;
-// client-side debounce is recommended (see test-reactive.html examples).
+// Supports field-specific search with "field:query" syntax (e.g. "msisdn:972")
+// and general search across ICCID, MSISDN, IMSI, CLI, Status, RatePlan.
 func ReactiveSimSearchHandler(c *fiber.Ctx) error {
-	query := c.Query("q", "")
+	raw := c.Query("q", "")
 
-	if query == "" {
+	if raw == "" {
 		return c.Status(400).JSON(fiber.Map{
 			"error": "Search query is required",
 		})
 	}
 
-	// Direct DB query — debouncing belongs on the client side for REST
-	// Use GORM naming strategy for correct column names (e.g. ICCID → i_c_c_i_d)
-	colICCID := database.DB.Config.NamingStrategy.ColumnName("", "ICCID")
-	colMSISDN := database.DB.Config.NamingStrategy.ColumnName("", "MSISDN")
-	colIMSI := database.DB.Config.NamingStrategy.ColumnName("", "IMSI")
-	colCLI := database.DB.Config.NamingStrategy.ColumnName("", "CLI")
+	// Parse field-specific search: "field:value"
+	var field, query string
+	if idx := strings.Index(raw, ":"); idx > 0 && idx < len(raw)-1 {
+		field = strings.ToLower(raw[:idx])
+		query = raw[idx+1:]
+	} else {
+		field = "all"
+		query = raw
+	}
+
+	// Map field names → GORM column names
+	ns := database.DB.Config.NamingStrategy
+	fieldMap := map[string]string{
+		"iccid":     ns.ColumnName("", "ICCID"),
+		"msisdn":    ns.ColumnName("", "MSISDN"),
+		"imsi":      ns.ColumnName("", "IMSI"),
+		"cli":       ns.ColumnName("", "CLI"),
+		"status":    ns.ColumnName("", "Status"),
+		"rate_plan": ns.ColumnName("", "RatePlan"),
+	}
 
 	var sims []models.SimCard
 	like := "%" + query + "%"
-	if err := database.DB.Where(
-		fmt.Sprintf("%s LIKE ? OR %s LIKE ? OR %s LIKE ? OR %s LIKE ?", colICCID, colMSISDN, colIMSI, colCLI),
-		like, like, like, like,
-	).Limit(100).Find(&sims).Error; err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+
+	if field != "all" {
+		colName, ok := fieldMap[field]
+		if !ok {
+			return c.Status(400).JSON(fiber.Map{
+				"error": "Unknown search field: " + field,
+				"valid_fields": []string{"iccid", "msisdn", "imsi", "cli", "status", "rate_plan"},
+			})
+		}
+		if err := database.DB.Where(
+			fmt.Sprintf("%s LIKE ?", colName), like,
+		).Limit(100).Find(&sims).Error; err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+	} else {
+		// Search across all indexed fields
+		cols := make([]string, 0, len(fieldMap))
+		args := make([]interface{}, 0, len(fieldMap))
+		for _, col := range fieldMap {
+			cols = append(cols, fmt.Sprintf("%s LIKE ?", col))
+			args = append(args, like)
+		}
+		if err := database.DB.Where(
+			strings.Join(cols, " OR "), args...,
+		).Limit(100).Find(&sims).Error; err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
 	}
 
 	return c.JSON(fiber.Map{
 		"results": sims,
 		"count":   len(sims),
 		"query":   query,
+		"field":   field,
 	})
 }
 
