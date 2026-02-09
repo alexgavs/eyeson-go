@@ -57,7 +57,7 @@ func ReactiveEventsHandler(c *fiber.Ctx) error {
 		fmt.Fprintf(w, "data: %s\n\n", welcomeData)
 		w.Flush()
 
-			// Subscribe to broadcaster - get a dedicated channel for this client
+		// Subscribe to broadcaster - get a dedicated channel for this client
 		subCh := eventBroadcaster.Subscribe()
 		defer eventBroadcaster.Unsubscribe(subCh)
 
@@ -169,7 +169,7 @@ func ReactiveSimSearchHandler(c *fiber.Ctx) error {
 		colName, ok := fieldMap[field]
 		if !ok {
 			return c.Status(400).JSON(fiber.Map{
-				"error": "Unknown search field: " + field,
+				"error":        "Unknown search field: " + field,
 				"valid_fields": []string{"iccid", "msisdn", "imsi", "cli", "status", "rate_plan"},
 			})
 		}

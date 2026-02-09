@@ -40,10 +40,10 @@ type Event struct {
 
 // EventStats holds aggregated event statistics
 type EventStats struct {
-	Timestamp    time.Time         `json:"timestamp"`
-	Total        int64             `json:"total"`
-	ByType       map[EventType]int64 `json:"by_type"`
-	Subscribers  int               `json:"subscribers"`
+	Timestamp   time.Time           `json:"timestamp"`
+	Total       int64               `json:"total"`
+	ByType      map[EventType]int64 `json:"by_type"`
+	Subscribers int                 `json:"subscribers"`
 }
 
 // EventBroadcaster manages fan-out event broadcasting to multiple SSE subscribers.
@@ -53,8 +53,8 @@ type EventBroadcaster struct {
 	subscribers map[chan Event]struct{}
 
 	// Stats tracking (lock-free)
-	totalEvents  int64
-	statsByType  sync.Map // EventType -> *int64
+	totalEvents int64
+	statsByType sync.Map // EventType -> *int64
 }
 
 // NewEventBroadcaster creates a new event broadcaster

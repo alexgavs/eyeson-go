@@ -1,5 +1,6 @@
 ﻿# Binaries
 *.exe
+*.exe~
 *.dll
 *.so
 *.dylib
@@ -24,6 +25,14 @@ eyeson-gui/frontend/dist/
 
 # Wails build output
 eyeson-gui/build/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Runtime logs
+.runlogs/
 
 # Environment & Secrets (NEVER COMMIT!)
 .env

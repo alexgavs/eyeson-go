@@ -1,6 +1,6 @@
 # EyesOn - System Architecture
 
-> Last Updated: January 28, 2026
+> Last Updated: February 10, 2026
 
 ## 📋 Overview
 
@@ -203,20 +203,40 @@ eyeson-go/
 │   │   │   └── client.go       # Pelephone API client
 │   │   ├── handlers/
 │   │   │   ├── auth.go         # Login, users, passwords
-│   │   │   ├── middleware.go   # JWT, RBAC middleware
+│   │   │   ├── middleware.go   # JWT, RBAC middleware (token query param for SSE)
 │   │   │   ├── roles.go        # Role CRUD
 │   │   │   ├── sims.go         # SIM operations
 │   │   │   ├── jobs.go         # Job tracking
-│   │   │   └── stats.go        # Statistics
+│   │   │   ├── stats.go        # Statistics
+│   │   │   ├── queue.go        # Queue management endpoints
+│   │   │   ├── audit.go        # Audit log endpoints
+│   │   │   ├── sync.go         # Manual sync triggers
+│   │   │   ├── upstream.go     # Upstream API config
+│   │   │   ├── oauth.go        # Google OAuth handlers
+│   │   │   ├── diagnostics.go  # API diagnostics
+│   │   │   ├── history.go      # SIM history
+│   │   │   └── reactive_handlers.go  # Reactive SSE, search, stats
 │   │   ├── jobs/               # Background Worker (Priority)
 │   │   │   └── worker.go       # Task consumer
 │   │   ├── syncer/             # Data Synchronization
 │   │   │   └── syncer.go       # Background data fetcher
+│   │   ├── reactive/
+│   │   │   ├── stream.go          # RxGo Observable wrapper (Map, Filter)
+│   │   │   ├── sim_repository.go  # Reactive SIM data access
+│   │   │   └── event_broadcaster.go # Fan-out SSE broadcaster
 │   │   ├── models/
 │   │   │   ├── db.go           # GORM models
-│   │   │   └── api.go          # API structures
+│   │   │   ├── api.go          # API structures
+│   │   │   ├── audit.go        # Audit models
+│   │   │   ├── queue.go        # Queue models
+│   │   │   └── settings.go     # Settings models
+│   │   ├── services/
+│   │   │   ├── queue_service.go  # Queue service
+│   │   │   ├── queue.go        # Queue operations
+│   │   │   ├── audit.go        # Audit service
+│   │   │   └── upstream.go     # Upstream service
 │   │   └── routes/
-│   │       └── routes.go       # All routes (47 handlers)
+│   │       └── routes.go       # All route registration
 │   ├── static/                 # Frontend build + assets
 │   │   ├── index.html          # React SPA entry
 │   │   ├── swagger.html        # Swagger UI
@@ -227,19 +247,35 @@ eyeson-go/
 │   │       └── ru.json
 │   └── eyeson.db               # SQLite database
 │
-├── eyeson-gui/                 # React Frontend
+├── eyeson-gui/                 # React Frontend (Vite SPA)
 │   └── frontend/
 │       ├── src/
-│       │   ├── App.tsx         # Main component (~2500 lines)
+│       │   ├── App.tsx         # Main component (reactive search, debounce)
 │       │   ├── api.ts          # API client
 │       │   ├── index.css       # VS Code themes
-│       │   └── main.tsx        # Entry point
-│       ├── dist/               # Production build
+│       │   ├── main.tsx        # Entry point
+│       │   ├── components/     # QueueView, SimDetailModal, StatusBadges, ToastContainer
+│       │   ├── constants/      # App constants
+│       │   ├── types/          # TypeScript types
+│       │   └── utils/          # cookies, format, session
 │       └── package.json
 │
-├── AGENT_SKILLS.md             # AI Agent knowledge base
-├── ARCHITECTURE.md             # This file
-├── PROJECT_STRUCTURE.md        # Detailed structure
+├── pelephone-simulator/        # Standalone API simulator
+│   ├── main.go                 # Simulator entry point
+│   └── web/static/             # Admin panel
+│
+├── tools/                      # Dev utilities
+│   ├── authtest/               # OAuth test tool
+│   ├── extract_pelephone_spec.py
+│   └── generate_upstream_spec.py
+│
+├── docs/                       # Documentation
+│   ├── ARCHITECTURE.md         # This file
+│   ├── REACTIVE_ARCHITECTURE.md
+│   ├── TESTING_REPORT.md
+│   ├── DEVELOPMENT_RULES.md
+│   └── design/                 # Design documents
+│
 └── README.md                   # Quick start guide
 ```
 
@@ -267,7 +303,8 @@ The system uses a **Priority-Based Concurrency Model** to ensure UI responsivene
 | Component | Technology | Version |
 |-----------|------------|---------|
 | Web Framework | Fiber | v2.52.10 |
-| ORM | GORM | latest |
+| Reactive | RxGo | v2.5.0 |
+| ORM | GORM | v1.31.1 |
 | Database | SQLite | embedded |
 | Auth | JWT | golang-jwt/v5 |
 | Password | bcrypt | golang.org/x/crypto |
@@ -497,6 +534,15 @@ admin.Post("/users", handlers.CreateUser)
 | GET | /api/v1/stats | SIM statistics |
 | GET | /api/v1/api-status | API health (Admin) |
 
+### Reactive (SSE + Search)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /api/v1/reactive/events | SSE event stream (fan-out broadcaster) |
+| GET | /api/v1/reactive/sims | SIM list via Observable pipeline |
+| GET | /api/v1/reactive/search | Reactive search (`?q=` or `?q=field:value`) |
+| GET | /api/v1/reactive/stats | Aggregated event statistics |
+
 ### Documentation
 
 | Method | Endpoint | Description |
@@ -708,9 +754,7 @@ http://localhost:5000
 
 | File | Description |
 |------|-------------|
-| [QUICKSTART.md](QUICKSTART.md) | Quick start guide (3 steps) |
-| [TESTING_GUIDE.md](TESTING_GUIDE.md) | Testing scenarios |
-| [SIMULATOR_CONFIG.md](SIMULATOR_CONFIG.md) | Simulator vs Real API |
-| [DB_FIRST_ARCHITECTURE.md](DB_FIRST_ARCHITECTURE.md) | Offline-first design |
-| [AUTO_SYNC_AFTER_TASK.md](AUTO_SYNC_AFTER_TASK.md) | Auto-sync feature |
-| [QUEUE_FEATURES.md](QUEUE_FEATURES.md) | Queue system details |
+| [REACTIVE_ARCHITECTURE.md](REACTIVE_ARCHITECTURE.md) | Reactive layer (RxGo, SSE, EventBroadcaster) |
+| [TESTING_REPORT.md](TESTING_REPORT.md) | Test results and verification |
+| [DEVELOPMENT_RULES.md](DEVELOPMENT_RULES.md) | Development guidelines |
+| [design/](design/) | Design documents (billing, subscriptions, hierarchy) |
