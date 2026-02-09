@@ -1,7 +1,7 @@
 param(
   [string]$BaseUrl = "http://127.0.0.1:5000",
   [string]$Username = "admin",
-  [string]$Password = "admin123"
+  [string]$Password = "admin"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -34,7 +34,7 @@ Write-Section "Auth"
 $loginCandidates = @(
   @{ username = $Username; password = $Password },
   @{ username = $Username; password = "admin" },
-  @{ username = $Username; password = "admin123" }
+  @{ username = $Username; password = "admin" }
 )
 
 $token = $null

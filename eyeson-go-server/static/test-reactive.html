@@ -755,14 +755,19 @@ Invoke-RestMethod -Uri "http://localhost:5000/api/v1/reactive/search?q=972" `
             if (!sims || sims.length === 0) throw new Error('No SIMs available');
             var sim = sims[0];
             var msisdn = sim.MSISDN || sim.msisdn;
-            var status = sim.SIM_STATUS_CHANGE || sim.status;
-            var newStatus = status === 'Activated' ? 'Suspended' : 'Activated';
+            var cli = sim.CLI || sim.cli || '';
+            var oldStatus = sim.SIM_STATUS_CHANGE || sim.status || '';
+            var newStatus = oldStatus === 'Activated' ? 'Suspended' : 'Activated';
             var res = await fetch('/api/v1/sims/bulk-status', {
                 method: 'POST',
                 headers: Object.assign({}, authHeaders(), { 'Content-Type': 'application/json' }),
-                body: JSON.stringify({ msisdns: [msisdn], newStatus: newStatus })
+                body: JSON.stringify({
+                    status: newStatus,
+                    items: [{ msisdn: msisdn, cli: cli, old_status: oldStatus }]
+                })
             });
-            el.innerHTML = '<div class="result-box success"><strong>Status change queued</strong><br>SIM: ' + msisdn + ' &rarr; ' + newStatus + '<br><small>Watch SSE panel for events.</small></div>';
+            var data = await res.json();
+            el.innerHTML = '<div class="result-box success"><strong>Status change queued</strong><br>SIM: ' + msisdn + ' (' + oldStatus + ' &rarr; ' + newStatus + ')<br><small>Task ID: ' + (data.requestId || data.task_ids) + ' — Watch SSE panel for events.</small></div>';
         } catch (err) {
             el.innerHTML = '<div class="result-box error">' + err.message + '</div>';
         }
