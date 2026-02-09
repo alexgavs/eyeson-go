@@ -20,7 +20,12 @@ import (
 func JWTMiddleware(c *fiber.Ctx) error {
 	authHeader := c.Get("Authorization")
 	if authHeader == "" {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Missing authorization header"})
+		// SSE (EventSource) can't send custom headers — accept token via query param
+		if qToken := c.Query("token"); qToken != "" {
+			authHeader = "Bearer " + qToken
+		} else {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Missing authorization header"})
+		}
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
