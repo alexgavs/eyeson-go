@@ -5,6 +5,10 @@
 
 package models
 
+// Type aliases for reactive programming
+type Sim = SimCard
+type SimUpdate = SimData
+
 type ResponseBase struct {
 	Result  string `json:"result"`
 	Message string `json:"message,omitempty"`

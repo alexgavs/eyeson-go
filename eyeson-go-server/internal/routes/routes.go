@@ -163,6 +163,14 @@ func SetupRoutes(app *fiber.App, cfg *config.Config) {
 	audit.Get("/export", handlers.ExportAuditLogs)            // Export to CSV
 	audit.Delete("/cleanup", handlers.CleanupOldAuditLogs)    // Cleanup old logs
 
+	// Reactive endpoints (protected)
+	reactive := api.Group("/reactive")
+	reactive.Use(handlers.JWTMiddleware)
+	reactive.Get("/events", handlers.ReactiveEventsHandler)      // Reactive SSE event stream
+	reactive.Get("/sims", handlers.ReactiveSimsListHandler)      // Reactive SIM list
+	reactive.Get("/search", handlers.ReactiveSimSearchHandler)   // Reactive debounced search
+	reactive.Get("/stats", handlers.ReactiveStatsHandler)        // Reactive aggregated stats
+
 	// Статические файлы
 	app.Static("/assets", "./static/assets")
 	app.Static("/", "./static")
