@@ -1,221 +1,875 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Reactive Architecture Tester</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EyesOn Reactive Architecture — Test Console</title>
     <style>
-        body { font-family: Arial; margin: 20px; background: #f5f5f5; }
-        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; }
-        h1 { color: #333; }
-        button { padding: 10px 20px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
-        button:hover { background: #0056b3; }
-        button:disabled { background: #ccc; cursor: not-allowed; }
-        .section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 4px; }
-        .status { padding: 5px 10px; border-radius: 3px; font-weight: bold; }
-        .status.connected { background: #d4edda; color: #155724; }
-        .status.disconnected { background: #f8d7da; color: #721c24; }
-        #eventLog { height: 300px; overflow-y: auto; background: #f8f9fa; padding: 10px; font-family: monospace; font-size: 12px; border: 1px solid #ddd; }
-        .event { margin: 2px 0; padding: 3px; border-left: 3px solid #007bff; padding-left: 5px; }
-        .result { margin-top: 10px; padding: 10px; background: #e7f3ff; border-radius: 4px; }
-        pre { background: #f4f4f4; padding: 10px; overflow-x: auto; }
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --success: #16a34a;
+            --warning: #d97706;
+            --danger: #dc2626;
+            --bg: #f8fafc;
+            --card: #ffffff;
+            --border: #e2e8f0;
+            --text: #1e293b;
+            --text-muted: #64748b;
+            --mono: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+        
+        .header {
+            background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%);
+            color: white; padding: 24px 32px; margin-bottom: 24px;
+        }
+        .header h1 { font-size: 1.75rem; font-weight: 700; }
+        .header p { opacity: .85; margin-top: 4px; }
+        .header .badge { display: inline-block; background: rgba(255,255,255,.2); padding: 2px 10px; border-radius: 12px; font-size: .75rem; margin-left: 8px; vertical-align: middle; }
+
+        .container { max-width: 1400px; margin: 0 auto; padding: 0 24px 48px; }
+        
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .grid .full { grid-column: 1 / -1; }
+        
+        .card {
+            background: var(--card); border: 1px solid var(--border);
+            border-radius: 12px; overflow: hidden;
+        }
+        .card-header {
+            padding: 16px 20px; border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: 10px;
+        }
+        .card-header h3 { font-size: 1rem; font-weight: 600; }
+        .card-header .num { 
+            background: var(--primary); color: white; width: 28px; height: 28px;
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            font-size: .8rem; font-weight: 700; flex-shrink: 0;
+        }
+        .card-body { padding: 20px; }
+        
+        .btn {
+            padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer;
+            font-size: .875rem; font-weight: 500; transition: all .15s;
+            display: inline-flex; align-items: center; gap: 6px;
+        }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: var(--primary-dark); }
+        .btn-success { background: var(--success); color: white; }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-warning { background: var(--warning); color: white; }
+        .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+        .btn-outline:hover { background: #f1f5f9; }
+        .btn:disabled { opacity: .5; cursor: not-allowed; }
+        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+        
+        input[type="text"], input[type="password"] {
+            padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px;
+            font-size: .875rem; width: 180px; outline: none; transition: border-color .15s;
+        }
+        input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,.1); }
+        
+        .status-badge {
+            padding: 4px 12px; border-radius: 20px; font-size: .75rem; font-weight: 600;
+        }
+        .status-connected { background: #dcfce7; color: #166534; }
+        .status-disconnected { background: #fee2e2; color: #991b1b; }
+        .status-pending { background: #fef3c7; color: #92400e; }
+        
+        .log-container {
+            height: 320px; overflow-y: auto; background: #0f172a; color: #e2e8f0;
+            padding: 12px; font-family: var(--mono); font-size: .8rem;
+            border-radius: 8px; scroll-behavior: smooth;
+        }
+        .log-entry { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,.05); display: flex; gap: 8px; }
+        .log-time { color: #64748b; flex-shrink: 0; }
+        .log-type { font-weight: 600; flex-shrink: 0; min-width: 100px; }
+        .log-type.info { color: #60a5fa; }
+        .log-type.event { color: #34d399; }
+        .log-type.error { color: #f87171; }
+        .log-type.system { color: #a78bfa; }
+        .log-msg { word-break: break-all; }
+        
+        .result-box {
+            margin-top: 12px; padding: 12px; border-radius: 8px;
+            font-size: .85rem; position: relative;
+        }
+        .result-box.success { background: #f0fdf4; border-left: 4px solid var(--success); }
+        .result-box.error { background: #fef2f2; border-left: 4px solid var(--danger); }
+        .result-box.warn { background: #fffbeb; border-left: 4px solid var(--warning); }
+        .result-box.info { background: #eff6ff; border-left: 4px solid var(--primary); }
+        
+        pre {
+            background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px;
+            font-family: var(--mono); font-size: .8rem; overflow-x: auto;
+            margin-top: 8px; max-height: 200px; overflow-y: auto;
+        }
+        code { font-family: var(--mono); font-size: .85em; background: #f1f5f9; padding: 2px 6px; border-radius: 3px; }
+        
+        .metrics-row { display: flex; gap: 16px; margin-top: 12px; }
+        .metric {
+            flex: 1; padding: 12px; background: #f8fafc; border-radius: 8px;
+            border: 1px solid var(--border); text-align: center;
+        }
+        .metric .value { font-size: 1.5rem; font-weight: 700; color: var(--primary); }
+        .metric .label { font-size: .75rem; color: var(--text-muted); }
+        
+        .example-tabs { display: flex; border-bottom: 2px solid var(--border); margin-bottom: 16px; }
+        .example-tab {
+            padding: 8px 16px; cursor: pointer; font-size: .85rem; font-weight: 500;
+            border-bottom: 2px solid transparent; margin-bottom: -2px; color: var(--text-muted);
+        }
+        .example-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+        .example-content { display: none; }
+        .example-content.active { display: block; }
+        
+        .test-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+        .test-row:last-child { border-bottom: none; }
+        .test-name { flex: 1; font-size: .9rem; }
+        .test-status { width: 70px; text-align: center; font-size: .75rem; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+        .test-status.pass { background: #dcfce7; color: #166534; }
+        .test-status.fail { background: #fee2e2; color: #991b1b; }
+        .test-status.skip { background: #f1f5f9; color: #64748b; }
+        .test-time { width: 60px; text-align: right; font-size: .8rem; color: var(--text-muted); font-family: var(--mono); }
+        
+        .search-live { display: flex; gap: 8px; align-items: center; }
+        .search-live input { flex: 1; width: auto; }
+        .search-indicator { font-size: .75rem; color: var(--text-muted); }
+        
+        @media (max-width: 768px) {
+            .grid { grid-template-columns: 1fr; }
+            .metrics-row { flex-direction: column; }
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Reactive Architecture Tester</h1>
-        
-        <div class="section">
-            <h3>Authentication</h3>
-            <input type="text" id="username" placeholder="Username" value="admin" />
-            <input type="password" id="password" placeholder="Password" value="admin123" />
-            <button onclick="login()">Login</button>
-            <div id="authResult"></div>
+
+<div class="header">
+    <h1>EyesOn Reactive Test Console <span class="badge">RxGo v2</span></h1>
+    <p>Interactive testing &amp; debugging for reactive architecture endpoints</p>
+</div>
+
+<div class="container">
+    <div class="grid">
+        <!-- Auth -->
+        <div class="card full">
+            <div class="card-header">
+                <div class="num">0</div>
+                <h3>Authentication</h3>
+                <span id="authBadge" class="status-badge status-disconnected">Not Authenticated</span>
+            </div>
+            <div class="card-body" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                <input type="text" id="username" placeholder="Username" value="admin" />
+                <input type="password" id="password" placeholder="Password" value="admin" />
+                <button class="btn btn-primary" onclick="login()">Login</button>
+                <div id="authResult" style="font-size:.85rem;"></div>
+            </div>
         </div>
 
-        <div class="section">
-            <h3>1. Server-Sent Events (SSE) Stream</h3>
-            <p>Status: <span id="sseStatus" class="status disconnected">Disconnected</span></p>
-            <button onclick="connectSSE()">Connect to Event Stream</button>
-            <button onclick="disconnectSSE()">Disconnect</button>
-            <div id="eventLog"></div>
+        <!-- SSE -->
+        <div class="card full">
+            <div class="card-header">
+                <div class="num">1</div>
+                <h3>Server-Sent Events Stream</h3>
+                <span id="sseStatus" class="status-badge status-disconnected">Disconnected</span>
+            </div>
+            <div class="card-body">
+                <div class="btn-group" style="margin-bottom:12px;">
+                    <button class="btn btn-success" onclick="connectSSE()" id="btnConnect">Connect</button>
+                    <button class="btn btn-danger" onclick="disconnectSSE()" id="btnDisconnect" disabled>Disconnect</button>
+                    <button class="btn btn-outline" onclick="clearLog()">Clear Log</button>
+                    <span style="margin-left:auto; font-size:.8rem; color:var(--text-muted);" id="eventCounter">Events: 0</span>
+                </div>
+                <div class="log-container" id="eventLog"></div>
+                <div class="metrics-row">
+                    <div class="metric"><div class="value" id="metricTotal">0</div><div class="label">Total Events</div></div>
+                    <div class="metric"><div class="value" id="metricSim">0</div><div class="label">SIM Events</div></div>
+                    <div class="metric"><div class="value" id="metricSync">0</div><div class="label">Sync Events</div></div>
+                    <div class="metric"><div class="value" id="metricTask">0</div><div class="label">Task Events</div></div>
+                </div>
+            </div>
         </div>
 
-        <div class="section">
-            <h3>2. Reactive SIM List</h3>
-            <button onclick="testReactiveSims()">Get Reactive SIM List</button>
-            <div id="simsResult"></div>
+        <!-- Reactive SIMs -->
+        <div class="card">
+            <div class="card-header">
+                <div class="num">2</div>
+                <h3>Reactive SIM List</h3>
+            </div>
+            <div class="card-body">
+                <p style="font-size:.85rem; color:var(--text-muted); margin-bottom:12px;">
+                    Fetches SIM data through <code>Observable.FromChannel &rarr; Collect</code> reactive pipeline.
+                </p>
+                <button class="btn btn-primary" onclick="testReactiveSims()">Fetch via Reactive Stream</button>
+                <div id="simsResult"></div>
+            </div>
         </div>
 
-        <div class="section">
-            <h3>3. Reactive Search (Debounced)</h3>
-            <input type="text" id="searchQuery" placeholder="Search..." />
-            <button onclick="testReactiveSearch()">Search</button>
-            <div id="searchResult"></div>
+        <!-- Reactive Search -->
+        <div class="card">
+            <div class="card-header">
+                <div class="num">3</div>
+                <h3>Reactive Debounced Search</h3>
+            </div>
+            <div class="card-body">
+                <p style="font-size:.85rem; color:var(--text-muted); margin-bottom:12px;">
+                    Pipeline: <code>Debounce(300ms) &rarr; Distinct &rarr; LIKE Query</code>
+                </p>
+                <div class="search-live">
+                    <input type="text" id="searchQuery" placeholder="Search ICCID / MSISDN / IMSI..." style="width:100%;" oninput="onSearchInput(this.value)" />
+                    <span class="search-indicator" id="searchIndicator"></span>
+                </div>
+                <div id="searchResult"></div>
+            </div>
         </div>
 
-        <div class="section">
-            <h3>4. Reactive Stats</h3>
-            <button onclick="testReactiveStats()">Get Event Statistics</button>
-            <div id="statsResult"></div>
-        </div>    <div class="section">
-            <h3>5. Generate Events</h3>
-            <p>Trigger some actions to see events in the SSE stream:</p>
-            <button onclick="generateEvent()">Change SIM Status (Generates Events)</button>
-            <div id="generateResult"></div>
+        <!-- Reactive Stats -->
+        <div class="card">
+            <div class="card-header">
+                <div class="num">4</div>
+                <h3>Reactive Event Stats</h3>
+            </div>
+            <div class="card-body">
+                <p style="font-size:.85rem; color:var(--text-muted); margin-bottom:12px;">
+                    Pipeline: <code>Buffer(100, 5s) &rarr; Aggregate(count by type)</code>
+                </p>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="testReactiveStats()">Get Stats (5s Window)</button>
+                    <button class="btn btn-outline" onclick="toggleAutoStats()" id="btnAutoStats">Auto-Refresh: OFF</button>
+                </div>
+                <div id="statsResult"></div>
+            </div>
+        </div>
+
+        <!-- Event Generator -->
+        <div class="card">
+            <div class="card-header">
+                <div class="num">5</div>
+                <h3>Event Generator</h3>
+            </div>
+            <div class="card-body">
+                <p style="font-size:.85rem; color:var(--text-muted); margin-bottom:12px;">
+                    Trigger actions that emit reactive events. Watch the SSE panel to see events arrive in real-time.
+                </p>
+                <div class="btn-group">
+                    <button class="btn btn-warning" onclick="triggerStatusChange()">Change SIM Status</button>
+                    <button class="btn btn-primary" onclick="triggerSync()">Trigger Sync</button>
+                </div>
+                <div id="generateResult"></div>
+            </div>
+        </div>
+
+        <!-- Test Suite -->
+        <div class="card full">
+            <div class="card-header">
+                <div class="num">6</div>
+                <h3>Automated Test Suite</h3>
+            </div>
+            <div class="card-body">
+                <button class="btn btn-primary" onclick="runAllTests()" id="btnRunTests">Run All Tests</button>
+                <div id="testSuite" style="margin-top:12px;">
+                    <div class="test-row"><span class="test-name">POST /auth/login &mdash; Authentication</span><span class="test-status skip" id="t1">&mdash;</span><span class="test-time" id="t1t"></span></div>
+                    <div class="test-row"><span class="test-name">GET /reactive/sims &mdash; Stream SIM list</span><span class="test-status skip" id="t2">&mdash;</span><span class="test-time" id="t2t"></span></div>
+                    <div class="test-row"><span class="test-name">GET /reactive/search?q=972 &mdash; Debounced search</span><span class="test-status skip" id="t3">&mdash;</span><span class="test-time" id="t3t"></span></div>
+                    <div class="test-row"><span class="test-name">GET /reactive/stats &mdash; Aggregated stats</span><span class="test-status skip" id="t4">&mdash;</span><span class="test-time" id="t4t"></span></div>
+                    <div class="test-row"><span class="test-name">GET /reactive/events &mdash; SSE connection</span><span class="test-status skip" id="t5">&mdash;</span><span class="test-time" id="t5t"></span></div>
+                    <div class="test-row"><span class="test-name">GET /stats &mdash; Backend stats (compare)</span><span class="test-status skip" id="t6">&mdash;</span><span class="test-time" id="t6t"></span></div>
+                    <div class="test-row"><span class="test-name">GET /sims &mdash; Standard SIM list (compare)</span><span class="test-status skip" id="t7">&mdash;</span><span class="test-time" id="t7t"></span></div>
+                </div>
+                <div id="testSummary" style="margin-top:12px;"></div>
+            </div>
+        </div>
+
+        <!-- Code Examples -->
+        <div class="card full">
+            <div class="card-header">
+                <div class="num">7</div>
+                <h3>Code Examples &mdash; Reactive API Usage</h3>
+            </div>
+            <div class="card-body">
+                <div class="example-tabs" id="exampleTabs">
+                    <div class="example-tab active" onclick="showTab('ex-sse', this)">SSE Events</div>
+                    <div class="example-tab" onclick="showTab('ex-search', this)">Live Search</div>
+                    <div class="example-tab" onclick="showTab('ex-stats', this)">Stats Dashboard</div>
+                    <div class="example-tab" onclick="showTab('ex-go', this)">Go Backend</div>
+                    <div class="example-tab" onclick="showTab('ex-curl', this)">cURL</div>
+                </div>
+                
+                <div class="example-content active" id="ex-sse">
+                    <h4 style="margin-bottom:8px;">JavaScript &mdash; Subscribe to Real-time Events</h4>
+                    <pre>// Connect to reactive SSE stream
+const token = 'your-jwt-token';
+const es = new EventSource(
+  `/api/v1/reactive/events?user_id=admin&amp;token=${token}`
+);
+
+es.onopen = () =&gt; console.log('SSE Connected');
+
+es.onmessage = (event) =&gt; {
+  const data = JSON.parse(event.data);
+  
+  switch(data.type) {
+    case 'SIM_UPDATED':
+      updateSimTable(data.data);
+      break;
+    case 'SYNC_COMPLETED':
+      showNotification('Sync finished!', 'success');
+      refreshDashboard();
+      break;
+    case 'TASK_FAILED':
+      showNotification(`Task failed: ${data.data.error}`, 'error');
+      break;
+  }
+};
+
+es.onerror = () =&gt; {
+  console.log('SSE reconnecting...');
+  // Browser auto-reconnects for SSE
+};
+
+// Cleanup
+window.addEventListener('beforeunload', () =&gt; es.close());</pre>
+                </div>
+
+                <div class="example-content" id="ex-search">
+                    <h4 style="margin-bottom:8px;">JavaScript &mdash; Live Search with Client-side Debounce</h4>
+                    <pre>class ReactiveSearch {
+  constructor(inputEl, resultsEl) {
+    this.input = inputEl;
+    this.results = resultsEl;
+    this.debounceTimer = null;
+    this.abortController = null;
+    
+    this.input.addEventListener('input', (e) =&gt; {
+      this.search(e.target.value);
+    });
+  }
+
+  search(query) {
+    clearTimeout(this.debounceTimer);
+    if (query.length &lt; 2) {
+      this.results.innerHTML = '';
+      return;
+    }
+
+    this.debounceTimer = setTimeout(async () =&gt; {
+      // Cancel previous in-flight request
+      if (this.abortController) this.abortController.abort();
+      this.abortController = new AbortController();
+
+      try {
+        const res = await fetch(
+          `/api/v1/reactive/search?q=${encodeURIComponent(query)}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: this.abortController.signal
+          }
+        );
+        const data = await res.json();
+        this.renderResults(data.results, data.count);
+      } catch (err) {
+        if (err.name !== 'AbortError') console.error(err);
+      }
+    }, 300);
+  }
+
+  renderResults(results, count) {
+    this.results.innerHTML = results.map(sim =&gt; `
+      &lt;tr&gt;
+        &lt;td&gt;${sim.msisdn}&lt;/td&gt;
+        &lt;td&gt;${sim.iccid}&lt;/td&gt;
+        &lt;td&gt;${sim.status}&lt;/td&gt;
+      &lt;/tr&gt;
+    `).join('');
+  }
+}
+
+new ReactiveSearch(
+  document.getElementById('search-input'),
+  document.getElementById('results-body')
+);</pre>
+                </div>
+
+                <div class="example-content" id="ex-stats">
+                    <h4 style="margin-bottom:8px;">JavaScript &mdash; Real-time Stats Dashboard</h4>
+                    <pre>class ReactiveDashboard {
+  constructor() {
+    this.history = [];
+    this.maxHistory = 60; // 5 min of data
+  }
+
+  async start() {
+    await this.fetchAndRender();
+    setInterval(() =&gt; this.fetchAndRender(), 5000);
+  }
+
+  async fetchAndRender() {
+    try {
+      const res = await fetch('/api/v1/reactive/stats', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (res.status === 408) {
+        this.renderIdle(); // No events in window
+        return;
+      }
+      
+      const stats = await res.json();
+      if (stats === null) { this.renderIdle(); return; }
+
+      this.history.push({
+        time: new Date(stats.timestamp),
+        total: stats.total,
+        byType: stats.by_type
+      });
+      if (this.history.length &gt; this.maxHistory) this.history.shift();
+
+      this.renderMetrics(stats);
+    } catch (err) {
+      console.error('Stats fetch error:', err);
+    }
+  }
+
+  renderMetrics(stats) {
+    document.getElementById('total-events').textContent = stats.total;
+    for (const [type, count] of Object.entries(stats.by_type)) {
+      const el = document.getElementById(`metric-${type}`);
+      if (el) el.textContent = count;
+    }
+  }
+
+  renderIdle() {
+    document.getElementById('total-events').textContent = '---';
+  }
+}
+
+new ReactiveDashboard().start();</pre>
+                </div>
+
+                <div class="example-content" id="ex-go">
+                    <h4 style="margin-bottom:8px;">Go &mdash; Emitting Events &amp; Using Reactive Streams</h4>
+                    <pre>package handlers
+
+import (
+    "eyeson-go-server/internal/reactive"
+    "eyeson-go-server/internal/models"
+)
+
+// Emit events from any handler to broadcast to SSE clients
+func UpdateSimStatus(c *fiber.Ctx) error {
+    // ... perform the update ...
+
+    // Emit reactive event - all SSE subscribers receive it
+    EmitSimEvent(
+        reactive.EventSimUpdated,
+        map[string]interface{}{
+            "msisdn":     sim.MSISDN,
+            "old_status": oldStatus,
+            "new_status": newStatus,
+        },
+        currentUserID,
+    )
+    return c.JSON(fiber.Map{"result": "ok"})
+}
+
+// Using reactive streams for custom queries
+func HighUsageAlerts(c *fiber.Ctx) error {
+    ctx := context.Background()
+    repo := reactive.NewSimRepository()
+
+    stream := repo.FindByStatusStream(ctx, "Activated")
+
+    result := stream.
+        Filter(func(item interface{}) bool {
+            sim := item.(models.Sim)
+            return sim.UsageMB &gt; 1000
+        }).
+        Map(func(item interface{}) interface{} {
+            sim := item.(models.Sim)
+            return map[string]interface{}{
+                "msisdn": sim.MSISDN,
+                "usage":  sim.UsageMB,
+                "alert":  sim.UsageMB &gt; 1800,
+            }
+        })
+
+    var alerts []interface{}
+    for item := range result.ToChannel() {
+        if !item.Error() {
+            alerts = append(alerts, item.V)
+        }
+    }
+    return c.JSON(fiber.Map{"alerts": alerts})
+}
+
+// Periodic sync with reactive operators
+func StartReactiveSync() {
+    syncSvc := reactive.NewSyncService(
+        reactive.NewSimRepository(),
+        reactive.NewEventBroadcaster(),
+    )
+    ctx := context.Background()
+    go syncSvc.PeriodicSync(ctx, 5*time.Minute)
+}</pre>
+                </div>
+
+                <div class="example-content" id="ex-curl">
+                    <h4 style="margin-bottom:8px;">cURL / PowerShell &mdash; Testing Reactive Endpoints</h4>
+                    <pre># === Bash / cURL ===
+
+# 1. Authenticate
+TOKEN=$(curl -s -X POST http://localhost:5000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin"}' | jq -r '.token')
+
+# 2. SSE events (streams indefinitely, Ctrl+C to stop)
+curl -N -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:5000/api/v1/reactive/events?user_id=admin"
+
+# 3. Reactive SIM list
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:5000/api/v1/reactive/sims" | jq '.count'
+
+# 4. Reactive search
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:5000/api/v1/reactive/search?q=972501" | jq '.'
+
+# 5. Event stats (5-second aggregation window)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:5000/api/v1/reactive/stats" | jq '.'
+
+
+# === PowerShell ===
+
+$body = '{"username":"admin","password":"admin"}'
+$token = (Invoke-RestMethod -Uri "http://localhost:5000/api/v1/auth/login" `
+  -Method POST -Body $body -ContentType "application/json").token
+
+$hdr = @{ Authorization = "Bearer $token" }
+
+# Reactive SIMs
+(Invoke-RestMethod -Uri "http://localhost:5000/api/v1/reactive/sims" `
+  -Headers $hdr).count
+
+# Reactive Search
+Invoke-RestMethod -Uri "http://localhost:5000/api/v1/reactive/search?q=972" `
+  -Headers $hdr | ConvertTo-Json</pre>
+                </div>
+            </div>
         </div>
     </div>
+</div>
 
-    <script>
-        let token = localStorage.getItem('token');
-        let eventSource = null;
+<script>
+    let token = localStorage.getItem('eyeson_token');
+    let eventSource = null;
+    let eventCount = 0;
+    let simEvents = 0, syncEvents = 0, taskEvents = 0;
+    let autoStatsInterval = null;
+    let searchDebounce = null;
 
-        async function login() {
-            const username = document.getElementById('username').value;
-            const password = document.getElementById('password').value;
-            
-            try {
-                const response = await fetch('/api/v1/auth/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password })
-                });
-                const data = await response.json();
-                token = data.token;
-                localStorage.setItem('token', token);
-                document.getElementById('authResult').innerHTML = 
-                    '<div class="result">✓ Login successful</div>';
-            } catch (error) {
-                document.getElementById('authResult').innerHTML = 
-                    '<div class="result">✗ Login failed: ' + error + '</div>';
-            }
-        }
-
-        function connectSSE() {
-            if (eventSource) {
-                disconnectSSE();
-            }
-            
-            eventSource = new EventSource('/api/v1/reactive/events?user_id=admin', {
-                headers: { 'Authorization': 'Bearer ' + token }
+    async function login() {
+        const u = document.getElementById('username').value;
+        const p = document.getElementById('password').value;
+        const start = performance.now();
+        try {
+            const res = await fetch('/api/v1/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: u, password: p })
             });
-            
-            eventSource.onopen = () => {
-                document.getElementById('sseStatus').className = 'status connected';
-                document.getElementById('sseStatus').textContent = 'Connected';
-                addEvent('SSE connection opened');
-            };
-            
-            eventSource.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                addEvent('Event received: ' + JSON.stringify(data));
-            };
-            
-            eventSource.onerror = (error) => {
-                document.getElementById('sseStatus').className = 'status disconnected';
-                document.getElementById('sseStatus').textContent = 'Error';
-                addEvent('SSE error: ' + error);
-            };
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Login failed');
+            token = data.token;
+            localStorage.setItem('eyeson_token', token);
+            document.getElementById('authBadge').className = 'status-badge status-connected';
+            document.getElementById('authBadge').textContent = 'Authenticated (' + (data.user ? data.user.username : u) + ')';
+            document.getElementById('authResult').innerHTML = '<span style="color:var(--success)">Token received in ' + Math.round(performance.now() - start) + 'ms</span>';
+        } catch (err) {
+            document.getElementById('authBadge').className = 'status-badge status-disconnected';
+            document.getElementById('authBadge').textContent = 'Auth Failed';
+            document.getElementById('authResult').innerHTML = '<span style="color:var(--danger)">' + err.message + '</span>';
         }
+    }
 
-        function disconnectSSE() {
-            if (eventSource) {
-                eventSource.close();
-                eventSource = null;
-                document.getElementById('sseStatus').className = 'status disconnected';
-                document.getElementById('sseStatus').textContent = 'Disconnected';
-                addEvent('SSE connection closed');
-            }
-        }
-
-        function addEvent(message) {
-            const log = document.getElementById('eventLog');
-            const time = new Date().toLocaleTimeString();
-            log.innerHTML += '<div class="event">[' + time + '] ' + message + '</div>';
-            log.scrollTop = log.scrollHeight;
-        }
-
-        async function testReactiveSims() {
+    function connectSSE() {
+        if (eventSource) disconnectSSE();
+        if (!token) { addLog('error', 'AUTH', 'Login first!'); return; }
+        eventSource = new EventSource('/api/v1/reactive/events?user_id=admin&token=' + token);
+        eventSource.onopen = function() {
+            document.getElementById('sseStatus').className = 'status-badge status-connected';
+            document.getElementById('sseStatus').textContent = 'Connected';
+            document.getElementById('btnConnect').disabled = true;
+            document.getElementById('btnDisconnect').disabled = false;
+            addLog('system', 'SSE', 'Connection established');
+        };
+        eventSource.onmessage = function(e) {
+            eventCount++;
             try {
-                const response = await fetch('/api/v1/reactive/sims', {
-                    headers: { 'Authorization': 'Bearer ' + token }
-                });
-                const data = await response.json();
-                document.getElementById('simsResult').innerHTML = 
-                    '<div class="result">✓ Received ' + data.count + ' SIMs<pre>' + 
-                    JSON.stringify(data.sims.slice(0, 3), null, 2) + '\n...</pre></div>';
-            } catch (error) {
-                document.getElementById('simsResult').innerHTML = 
-                    '<div class="result">✗ Error: ' + error + '</div>';
+                var data = JSON.parse(e.data);
+                var type = data.type || 'WELCOME';
+                if (type.indexOf('SIM_') === 0) simEvents++;
+                else if (type.indexOf('SYNC_') === 0) syncEvents++;
+                else if (type.indexOf('TASK_') === 0) taskEvents++;
+                addLog('event', type, JSON.stringify(data.data || data.message || data));
+                updateMetrics();
+            } catch (ex) {
+                addLog('info', 'RAW', e.data);
             }
-        }
+        };
+        eventSource.onerror = function() {
+            document.getElementById('sseStatus').className = 'status-badge status-pending';
+            document.getElementById('sseStatus').textContent = 'Reconnecting...';
+            addLog('error', 'SSE', 'Connection error - auto-reconnecting');
+        };
+    }
 
-        async function testReactiveSearch() {
-            const query = document.getElementById('searchQuery').value;
-            try {
-                const response = await fetch('/api/v1/reactive/search?q=' + encodeURIComponent(query), {
-                    headers: { 'Authorization': 'Bearer ' + token }
-                });
-                const data = await response.json();
-                document.getElementById('searchResult').innerHTML = 
-                    '<div class="result">✓ Found ' + data.count + ' results for "' + query + '"<pre>' + 
-                    JSON.stringify(data.results.slice(0, 3), null, 2) + '\n...</pre></div>';
-            } catch (error) {
-                document.getElementById('searchResult').innerHTML = 
-                    '<div class="result">✗ Error: ' + error + '</div>';
+    function disconnectSSE() {
+        if (eventSource) { eventSource.close(); eventSource = null; }
+        document.getElementById('sseStatus').className = 'status-badge status-disconnected';
+        document.getElementById('sseStatus').textContent = 'Disconnected';
+        document.getElementById('btnConnect').disabled = false;
+        document.getElementById('btnDisconnect').disabled = true;
+        addLog('system', 'SSE', 'Disconnected');
+    }
+
+    function addLog(type, label, msg) {
+        var log = document.getElementById('eventLog');
+        var now = new Date();
+        var time = now.toLocaleTimeString('en-US', {hour12: false}) + '.' + String(now.getMilliseconds()).padStart(3, '0');
+        log.innerHTML += '<div class="log-entry"><span class="log-time">' + time + '</span><span class="log-type ' + type + '">' + label + '</span><span class="log-msg">' + msg + '</span></div>';
+        log.scrollTop = log.scrollHeight;
+    }
+
+    function clearLog() {
+        document.getElementById('eventLog').innerHTML = '';
+        eventCount = simEvents = syncEvents = taskEvents = 0;
+        updateMetrics();
+    }
+
+    function updateMetrics() {
+        document.getElementById('metricTotal').textContent = eventCount;
+        document.getElementById('metricSim').textContent = simEvents;
+        document.getElementById('metricSync').textContent = syncEvents;
+        document.getElementById('metricTask').textContent = taskEvents;
+        document.getElementById('eventCounter').textContent = 'Events: ' + eventCount;
+    }
+
+    async function testReactiveSims() {
+        if (!token) { alert('Login first'); return; }
+        var el = document.getElementById('simsResult');
+        el.innerHTML = '<div class="result-box info">Loading via reactive stream...</div>';
+        var start = performance.now();
+        try {
+            var res = await fetch('/api/v1/reactive/sims', { headers: authHeaders() });
+            var data = await res.json();
+            var ms = Math.round(performance.now() - start);
+            var preview = data.sims ? data.sims.slice(0, 2) : [];
+            el.innerHTML = '<div class="result-box success"><strong>' + data.count + ' SIMs</strong> received via reactive stream in ' + ms + 'ms<pre>' + JSON.stringify(preview, null, 2) + '\n// ... ' + (data.count - 2) + ' more</pre></div>';
+        } catch (err) {
+            el.innerHTML = '<div class="result-box error">' + err.message + '</div>';
+        }
+    }
+
+    function onSearchInput(val) {
+        clearTimeout(searchDebounce);
+        document.getElementById('searchIndicator').textContent = 'typing...';
+        if (val.length < 2) {
+            document.getElementById('searchResult').innerHTML = '';
+            document.getElementById('searchIndicator').textContent = '';
+            return;
+        }
+        searchDebounce = setTimeout(function() {
+            document.getElementById('searchIndicator').textContent = 'searching...';
+            doSearch(val);
+        }, 350);
+    }
+
+    async function doSearch(query) {
+        if (!token) return;
+        var start = performance.now();
+        try {
+            var res = await fetch('/api/v1/reactive/search?q=' + encodeURIComponent(query), { headers: authHeaders() });
+            var data = await res.json();
+            var ms = Math.round(performance.now() - start);
+            document.getElementById('searchIndicator').textContent = data.count + ' results (' + ms + 'ms)';
+            var el = document.getElementById('searchResult');
+            if (data.count > 0) {
+                el.innerHTML = '<div class="result-box success"><strong>' + data.count + ' results</strong> for "' + data.query + '" in ' + ms + 'ms<pre>' + JSON.stringify(data.results.slice(0, 3), null, 2) + '</pre></div>';
+            } else {
+                el.innerHTML = '<div class="result-box warn">No results for "' + data.query + '" (' + ms + 'ms)</div>';
             }
+        } catch (err) {
+            document.getElementById('searchIndicator').textContent = 'error';
+            document.getElementById('searchResult').innerHTML = '<div class="result-box error">' + err.message + '</div>';
         }
+    }
 
-        async function testReactiveStats() {
-            try {
-                const response = await fetch('/api/v1/reactive/stats', {
-                    headers: { 'Authorization': 'Bearer ' + token }
-                });
-                const data = await response.json();
-                document.getElementById('statsResult').innerHTML = 
-                    '<div class="result">✓ Stats received<pre>' + 
-                    JSON.stringify(data, null, 2) + '</pre></div>';
-            } catch (error) {
-                document.getElementById('statsResult').innerHTML = 
-                    '<div class="result">⚠ Timeout or no events (this is normal if no recent activity)</div>';
+    async function testReactiveStats() {
+        if (!token) { alert('Login first'); return; }
+        var el = document.getElementById('statsResult');
+        el.innerHTML = '<div class="result-box info">Waiting for stats (up to 6s)...</div>';
+        var start = performance.now();
+        try {
+            var res = await fetch('/api/v1/reactive/stats', { headers: authHeaders() });
+            var ms = Math.round(performance.now() - start);
+            if (res.status === 408) {
+                el.innerHTML = '<div class="result-box warn">Timeout (' + ms + 'ms) - no events in 5s window. Generate some events first!</div>';
+                return;
             }
-        }
-
-        async function generateEvent() {
-            try {
-                const simsResponse = await fetch('/api/v1/sims', {
-                    headers: { 'Authorization': 'Bearer ' + token }
-                });
-                const simsData = await simsResponse.json();
-                const firstSim = simsData.sims[0];
-                
-                if (firstSim) {
-                    const newStatus = firstSim.Status === 'Activated' ? 'Suspended' : 'Activated';
-                    const response = await fetch('/api/v1/sims/bulk-status', {
-                        method: 'POST',
-                        headers: { 
-                            'Authorization': 'Bearer ' + token,
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            msisdns: [firstSim.MSISDN],
-                            newStatus: newStatus
-                        })
-                    });
-                    const data = await response.json();
-                    document.getElementById('generateResult').innerHTML = 
-                        '<div class="result">✓ Status change queued for ' + firstSim.MSISDN + 
-                        ' → ' + newStatus + '<br>Watch the SSE stream above for events!</div>';
-                }
-            } catch (error) {
-                document.getElementById('generateResult').innerHTML = 
-                    '<div class="result">✗ Error: ' + error + '</div>';
+            var data = await res.json();
+            if (data === null) {
+                el.innerHTML = '<div class="result-box warn">No events in window (' + ms + 'ms). Trigger activity to see stats.</div>';
+                return;
             }
+            el.innerHTML = '<div class="result-box success"><strong>Stats</strong> aggregated in ' + ms + 'ms<pre>' + JSON.stringify(data, null, 2) + '</pre></div>';
+        } catch (err) {
+            el.innerHTML = '<div class="result-box error">' + err.message + '</div>';
         }
+    }
 
-        // Auto-login if token exists
-        if (token) {
-            document.getElementById('authResult').innerHTML = 
-                '<div class="result">Using saved token</div>';
+    function toggleAutoStats() {
+        var btn = document.getElementById('btnAutoStats');
+        if (autoStatsInterval) {
+            clearInterval(autoStatsInterval);
+            autoStatsInterval = null;
+            btn.textContent = 'Auto-Refresh: OFF';
+            btn.className = 'btn btn-outline';
+        } else {
+            autoStatsInterval = setInterval(testReactiveStats, 6000);
+            btn.textContent = 'Auto-Refresh: ON';
+            btn.className = 'btn btn-success';
+            testReactiveStats();
         }
-    </script>
+    }
+
+    async function triggerStatusChange() {
+        if (!token) { alert('Login first'); return; }
+        var el = document.getElementById('generateResult');
+        try {
+            var simsRes = await fetch('/api/v1/sims', { headers: authHeaders() });
+            var simsData = await simsRes.json();
+            var sims = simsData.data || simsData.sims;
+            if (!sims || sims.length === 0) throw new Error('No SIMs available');
+            var sim = sims[0];
+            var msisdn = sim.MSISDN || sim.msisdn;
+            var status = sim.SIM_STATUS_CHANGE || sim.status;
+            var newStatus = status === 'Activated' ? 'Suspended' : 'Activated';
+            var res = await fetch('/api/v1/sims/bulk-status', {
+                method: 'POST',
+                headers: Object.assign({}, authHeaders(), { 'Content-Type': 'application/json' }),
+                body: JSON.stringify({ msisdns: [msisdn], newStatus: newStatus })
+            });
+            el.innerHTML = '<div class="result-box success"><strong>Status change queued</strong><br>SIM: ' + msisdn + ' &rarr; ' + newStatus + '<br><small>Watch SSE panel for events.</small></div>';
+        } catch (err) {
+            el.innerHTML = '<div class="result-box error">' + err.message + '</div>';
+        }
+    }
+
+    async function triggerSync() {
+        if (!token) { alert('Login first'); return; }
+        var el = document.getElementById('generateResult');
+        try {
+            var res = await fetch('/api/v1/sync/full', { method: 'POST', headers: authHeaders() });
+            var data = await res.json();
+            el.innerHTML = '<div class="result-box success"><strong>Sync triggered</strong><br><small>Watch SSE for SYNC events.</small><pre>' + JSON.stringify(data, null, 2) + '</pre></div>';
+        } catch (err) {
+            el.innerHTML = '<div class="result-box error">' + err.message + '</div>';
+        }
+    }
+
+    async function runAllTests() {
+        var btn = document.getElementById('btnRunTests');
+        btn.disabled = true; btn.textContent = 'Running...';
+
+        await runTest('t1', async function() {
+            var res = await fetch('/api/v1/auth/login', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: 'admin', password: 'admin' })
+            });
+            var data = await res.json();
+            if (!data.token) throw new Error('No token');
+            token = data.token;
+            localStorage.setItem('eyeson_token', token);
+        });
+
+        await runTest('t2', async function() {
+            var res = await fetch('/api/v1/reactive/sims', { headers: authHeaders() });
+            var data = await res.json();
+            if (!data.count || data.count < 1) throw new Error('No SIMs: count=' + data.count);
+        });
+
+        await runTest('t3', async function() {
+            var res = await fetch('/api/v1/reactive/search?q=972', { headers: authHeaders() });
+            if (!res.ok) throw new Error('Status ' + res.status);
+        });
+
+        await runTest('t4', async function() {
+            var res = await fetch('/api/v1/reactive/stats', { headers: authHeaders() });
+            if (res.status !== 200 && res.status !== 408) throw new Error('Status ' + res.status);
+        });
+
+        await runTest('t5', async function() {
+            return new Promise(function(resolve, reject) {
+                var es = new EventSource('/api/v1/reactive/events?user_id=test');
+                var timeout = setTimeout(function() { es.close(); reject(new Error('Timeout')); }, 3000);
+                es.onmessage = function() { clearTimeout(timeout); es.close(); resolve(); };
+                es.onerror = function() { clearTimeout(timeout); es.close(); reject(new Error('SSE error')); };
+            });
+        });
+
+        await runTest('t6', async function() {
+            var res = await fetch('/api/v1/stats', { headers: authHeaders() });
+            var data = await res.json();
+            if (!data.data || !data.data.total) throw new Error('No stats data');
+        });
+
+        await runTest('t7', async function() {
+            var res = await fetch('/api/v1/sims', { headers: authHeaders() });
+            var data = await res.json();
+            if (!data.count || data.count < 1) throw new Error('No SIMs');
+        });
+
+        var passed = 0, failed = 0;
+        for (var i = 1; i <= 7; i++) {
+            var el = document.getElementById('t' + i);
+            if (el.classList.contains('pass')) passed++;
+            if (el.classList.contains('fail')) failed++;
+        }
+        document.getElementById('testSummary').innerHTML = '<div class="result-box ' + (failed === 0 ? 'success' : 'warn') + '"><strong>' + passed + ' passed</strong>, <strong>' + failed + ' failed</strong> out of 7 tests</div>';
+        btn.disabled = false; btn.textContent = 'Run All Tests';
+    }
+
+    async function runTest(id, fn) {
+        var el = document.getElementById(id);
+        var timeEl = document.getElementById(id + 't');
+        el.textContent = '...'; el.className = 'test-status skip';
+        var start = performance.now();
+        try {
+            await fn();
+            el.textContent = 'PASS'; el.className = 'test-status pass';
+        } catch (err) {
+            el.textContent = 'FAIL'; el.className = 'test-status fail';
+            el.title = err.message;
+        }
+        timeEl.textContent = Math.round(performance.now() - start) + 'ms';
+    }
+
+    function showTab(id, tabEl) {
+        document.querySelectorAll('.example-content').forEach(function(el) { el.classList.remove('active'); });
+        document.querySelectorAll('.example-tab').forEach(function(el) { el.classList.remove('active'); });
+        document.getElementById(id).classList.add('active');
+        tabEl.classList.add('active');
+    }
+
+    function authHeaders() { return { 'Authorization': 'Bearer ' + token }; }
+
+    if (token) {
+        document.getElementById('authBadge').className = 'status-badge status-connected';
+        document.getElementById('authBadge').textContent = 'Using saved token';
+    }
+</script>
 </body>
 </html>

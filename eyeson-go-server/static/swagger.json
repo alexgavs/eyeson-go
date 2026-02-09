@@ -68,6 +68,10 @@
     {
       "name": "Audit",
       "description": "Audit logging and change history tracking (Administrator role required)"
+    },
+    {
+      "name": "Reactive",
+      "description": "Reactive programming endpoints powered by RxGo. Provides real-time event streaming (SSE), reactive data queries, debounced search, and aggregated statistics. All reactive endpoints use stream-based processing with backpressure control."
     }
   ],
   "paths": {
@@ -1226,6 +1230,202 @@
           }
         }
       }
+    },
+    "/api/v1/reactive/events": {
+      "get": {
+        "tags": ["Reactive"],
+        "summary": "Subscribe to real-time event stream (SSE)",
+        "description": "Establishes a Server-Sent Events (SSE) connection for receiving real-time system events. The stream delivers events as they occur — SIM changes, sync operations, task updates, and more.\n\n**Connection behavior:**\n- Sends a welcome event upon connection\n- Delivers events in real-time as JSON payloads\n- Sends keepalive comments every 15 seconds\n- Automatically reconnects on network errors (browser-native SSE behavior)\n\n**Event types:**\n- `SIM_CREATED` — New SIM card added\n- `SIM_UPDATED` — SIM card data changed\n- `SIM_DELETED` — SIM card removed\n- `SYNC_STARTED` — Upstream sync began\n- `SYNC_COMPLETED` — Upstream sync finished\n- `SYNC_FAILED` — Upstream sync error\n- `TASK_QUEUED` — New task in queue\n- `TASK_PROCESSING` — Task execution started\n- `TASK_COMPLETED` — Task finished successfully\n- `TASK_FAILED` — Task execution failed\n\n**Example SSE data:**\n```\ndata: {\"message\":\"Reactive SSE connection established\",\"time\":\"2026-02-09T12:00:00Z\"}\n\ndata: {\"type\":\"SIM_UPDATED\",\"data\":{\"msisdn\":\"972501234567\"}}\n\n: keepalive\n```",
+        "operationId": "reactiveEvents",
+        "security": [{"bearerAuth": []}],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "description": "Filter events for a specific user. When provided, only events belonging to this user (or broadcast events) are delivered.",
+            "required": false,
+            "schema": { "type": "string", "example": "admin" }
+          },
+          {
+            "name": "types",
+            "in": "query",
+            "description": "Comma-separated list of event types to subscribe to (future feature). Example: `SIM_UPDATED,SYNC_COMPLETED`",
+            "required": false,
+            "schema": { "type": "string", "example": "SIM_UPDATED,TASK_COMPLETED" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE stream established. Events are delivered as `text/event-stream`.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "description": "Server-sent events stream. Each event is a JSON object preceded by `data: `"
+                },
+                "example": "data: {\"message\":\"Reactive SSE connection established\",\"time\":\"2026-02-09T12:00:00Z\",\"user_id\":\"admin\"}\n\n"
+              }
+            }
+          },
+          "401": { "description": "Unauthorized — invalid or missing JWT token" }
+        }
+      }
+    },
+    "/api/v1/reactive/sims": {
+      "get": {
+        "tags": ["Reactive"],
+        "summary": "Get SIM cards via reactive stream",
+        "description": "Returns all SIM cards processed through a reactive stream pipeline. Data is fetched from the database, emitted into an RxGo observable, and collected into a response array.\n\n**Reactive pipeline:** `DB Query → Observable.FromChannel → Collect → JSON Response`\n\nThis endpoint demonstrates reactive data flow — each SIM is emitted as an individual item through the stream, enabling future enhancements like server-side filtering, transformation, and pagination within the reactive pipeline.",
+        "operationId": "reactiveSimsList",
+        "security": [{"bearerAuth": []}],
+        "responses": {
+          "200": {
+            "description": "SIM list retrieved successfully via reactive stream",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReactiveSimsResponse"
+                },
+                "example": {
+                  "sims": [
+                    {
+                      "ID": 1,
+                      "msisdn": "972501234567",
+                      "cli": "0501234567",
+                      "imsi": "425030001234567",
+                      "iccid": "8997250000012345670",
+                      "status": "Activated",
+                      "rate_plan": "500MB Plan",
+                      "in_session": true,
+                      "sim_type": "Postpaid"
+                    }
+                  ],
+                  "count": 1086
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "500": {
+            "description": "Stream processing error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reactive/search": {
+      "get": {
+        "tags": ["Reactive"],
+        "summary": "Reactive debounced SIM search",
+        "description": "Performs a SIM search through a reactive stream with built-in debouncing (300ms) and deduplication. Searches across ICCID, MSISDN, and IMSI fields using LIKE matching.\n\n**Reactive pipeline:** `Search Term → Debounce(300ms) → Distinct → DB Query → Collect → JSON Response`\n\n**Note:** The debounce operator is optimized for continuous streaming scenarios (SSE/WebSocket). For single HTTP requests, the search executes immediately after the debounce window. For real-time search-as-you-type, connect via SSE and send search terms through the stream.",
+        "operationId": "reactiveSimSearch",
+        "security": [{"bearerAuth": []}],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Search query string. Matches against ICCID, MSISDN, and IMSI fields using partial matching (LIKE %query%).",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "example": "972501"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search results from reactive stream",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReactiveSearchResponse"
+                },
+                "example": {
+                  "results": [
+                    {
+                      "ID": 42,
+                      "msisdn": "972501234567",
+                      "iccid": "8997250000012345670",
+                      "status": "Activated"
+                    }
+                  ],
+                  "count": 1,
+                  "query": "972501"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing search query",
+            "content": {
+              "application/json": {
+                "example": { "error": "Search query is required" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "500": {
+            "description": "Stream processing error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reactive/stats": {
+      "get": {
+        "tags": ["Reactive"],
+        "summary": "Get aggregated event statistics",
+        "description": "Returns aggregated statistics from the reactive event stream over a rolling time window (5 seconds). Statistics include total event count and breakdown by event type.\n\n**Reactive pipeline:** `Event Stream → Buffer(100 items, 5s window) → Aggregate(count by type) → JSON Response`\n\n**Important:** Returns `null` if no events occurred within the time window. This is expected behavior — generate some activity (SIM changes, sync operations) to see statistics.\n\n**Timeout:** The endpoint waits up to 6 seconds for aggregated data. If the buffer window hasn't completed, it returns a 408 timeout.",
+        "operationId": "reactiveStats",
+        "security": [{"bearerAuth": []}],
+        "responses": {
+          "200": {
+            "description": "Aggregated event statistics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReactiveStatsResponse"
+                },
+                "example": {
+                  "timestamp": "2026-02-09T12:00:05Z",
+                  "total": 15,
+                  "by_type": {
+                    "SIM_UPDATED": 8,
+                    "TASK_COMPLETED": 4,
+                    "SYNC_COMPLETED": 3
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "408": {
+            "description": "Timeout — no events within the aggregation window",
+            "content": {
+              "application/json": {
+                "example": { "error": "Timeout waiting for stats" }
+              }
+            }
+          },
+          "500": {
+            "description": "Stream processing error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2025,6 +2225,136 @@
             "type": "integer",
             "description": "Total tasks created today",
             "example": 25
+          }
+        }
+      },
+      "ReactiveSimsResponse": {
+        "type": "object",
+        "description": "Response from reactive SIM list endpoint. SIMs are processed through an RxGo observable stream before being collected into the response.",
+        "properties": {
+          "sims": {
+            "type": "array",
+            "description": "Array of SIM cards emitted from the reactive stream",
+            "items": {
+              "$ref": "#/components/schemas/ReactiveSimItem"
+            }
+          },
+          "count": {
+            "type": "integer",
+            "description": "Total number of SIMs in the stream",
+            "example": 1086
+          }
+        }
+      },
+      "ReactiveSimItem": {
+        "type": "object",
+        "description": "SIM card object as emitted from the reactive GORM stream",
+        "properties": {
+          "ID": { "type": "integer", "example": 1 },
+          "msisdn": { "type": "string", "description": "Mobile subscriber number", "example": "972501234567" },
+          "cli": { "type": "string", "description": "Caller Line ID (local format)", "example": "0501234567" },
+          "imsi": { "type": "string", "description": "International Mobile Subscriber Identity", "example": "425030001234567" },
+          "iccid": { "type": "string", "description": "Integrated Circuit Card Identifier", "example": "8997250000012345670" },
+          "imei": { "type": "string", "description": "International Mobile Equipment Identity", "example": "" },
+          "status": { "type": "string", "enum": ["Activated", "Suspended", "Terminated"], "example": "Activated" },
+          "rate_plan": { "type": "string", "description": "Current rate plan name", "example": "500MB Plan" },
+          "in_session": { "type": "boolean", "description": "Whether SIM has an active data session", "example": true },
+          "sim_type": { "type": "string", "enum": ["Postpaid", "Prepaid"], "example": "Postpaid" },
+          "customer_name": { "type": "string", "description": "Customer name", "example": "ACME Corp" },
+          "customer_number": { "type": "string", "description": "Customer account number", "example": "8327172" },
+          "usage_mb": { "type": "number", "description": "Monthly data usage in MB", "example": 128.5 },
+          "allocated_mb": { "type": "number", "description": "Allocated data in MB", "example": 2048 },
+          "last_sync_at": { "type": "string", "format": "date-time", "description": "Last synchronization timestamp" }
+        }
+      },
+      "ReactiveSearchResponse": {
+        "type": "object",
+        "description": "Response from reactive debounced search. Results are processed through Debounce(300ms) → Distinct → DB Query pipeline.",
+        "properties": {
+          "results": {
+            "type": "array",
+            "description": "SIM cards matching the search query",
+            "items": {
+              "$ref": "#/components/schemas/ReactiveSimItem"
+            }
+          },
+          "count": {
+            "type": "integer",
+            "description": "Number of matching results",
+            "example": 5
+          },
+          "query": {
+            "type": "string",
+            "description": "The search query that was executed",
+            "example": "972501"
+          }
+        }
+      },
+      "ReactiveStatsResponse": {
+        "type": "object",
+        "description": "Aggregated event statistics from the reactive event stream. Computed over a rolling time window using Buffer operator.",
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp when stats were aggregated",
+            "example": "2026-02-09T12:00:05Z"
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total number of events in the window",
+            "example": 15
+          },
+          "by_type": {
+            "type": "object",
+            "description": "Event count breakdown by type",
+            "additionalProperties": { "type": "integer" },
+            "example": {
+              "SIM_UPDATED": 8,
+              "TASK_COMPLETED": 4,
+              "SYNC_COMPLETED": 3
+            }
+          }
+        }
+      },
+      "ReactiveEvent": {
+        "type": "object",
+        "description": "A single event emitted by the reactive EventBroadcaster",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique event identifier (timestamp-based)",
+            "example": "20260209120000-1"
+          },
+          "type": {
+            "type": "string",
+            "description": "Event type",
+            "enum": ["SIM_CREATED", "SIM_UPDATED", "SIM_DELETED", "SYNC_STARTED", "SYNC_COMPLETED", "SYNC_FAILED", "TASK_QUEUED", "TASK_PROCESSING", "TASK_COMPLETED", "TASK_FAILED"],
+            "example": "SIM_UPDATED"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Event creation timestamp"
+          },
+          "data": {
+            "type": "object",
+            "description": "Event payload (varies by event type)"
+          },
+          "user_id": {
+            "type": "string",
+            "description": "ID of the user who triggered the event (empty for system events)",
+            "example": "admin"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Error message",
+            "example": "An error occurred"
           }
         }
       }
