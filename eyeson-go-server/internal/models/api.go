@@ -163,3 +163,9 @@ type APIStatusResponse struct {
 	Database    APIConnectionInfo `json:"database"`
 	LastChecked string            `json:"last_checked"`
 }
+
+// Event represents a standard Server-Sent Event (SSE) structure
+type Event struct {
+	Type string      `json:"type"`
+	Data interface{} `json:"data"`
+}
