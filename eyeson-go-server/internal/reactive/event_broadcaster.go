@@ -63,7 +63,7 @@ func (b *EventBroadcaster) Emit(eventType EventType, data interface{}, userID st
 		Data:      data,
 		UserID:    userID,
 	}
-	
+
 	select {
 	case b.eventCh <- rxgo.Of(event):
 	default:
@@ -82,7 +82,7 @@ func (b *EventBroadcaster) FilterByType(ctx context.Context, eventTypes ...Event
 	for _, t := range eventTypes {
 		typeMap[t] = true
 	}
-	
+
 	return b.Stream(ctx).Filter(func(item interface{}) bool {
 		event, ok := item.(Event)
 		if !ok {
@@ -106,31 +106,31 @@ func (b *EventBroadcaster) FilterByUser(ctx context.Context, userID string) *Str
 // ToSSE converts events to Server-Sent Events format
 func (b *EventBroadcaster) ToSSE(ctx context.Context, filters ...func(*Stream) *Stream) *Stream {
 	stream := b.Stream(ctx)
-	
+
 	// Apply filters
 	for _, filter := range filters {
 		stream = filter(stream)
 	}
-	
+
 	// Convert to SSE format
 	return stream.Map(func(item interface{}) interface{} {
 		event, ok := item.(Event)
 		if !ok {
 			return ""
 		}
-		
+
 		// Convert to models.Event for SSE
 		sseEvent := models.Event{
 			Type: string(event.Type),
 			Data: event.Data,
 		}
-		
+
 		jsonData, err := json.Marshal(sseEvent)
 		if err != nil {
 			log.Printf("[EventBroadcaster] Error marshaling event: %v", err)
 			return ""
 		}
-		
+
 		return jsonData
 	})
 }
@@ -138,10 +138,10 @@ func (b *EventBroadcaster) ToSSE(ctx context.Context, filters ...func(*Stream) *
 // AggregateStats creates a stream of aggregated statistics
 func (b *EventBroadcaster) AggregateStats(ctx context.Context, window time.Duration) *Stream {
 	resultCh := make(chan rxgo.Item, b.config.BufferSize)
-	
+
 	go func() {
 		defer close(resultCh)
-		
+
 		b.Stream(ctx).
 			Buffer(100, window).
 			Map(func(batch interface{}) interface{} {
@@ -149,13 +149,13 @@ func (b *EventBroadcaster) AggregateStats(ctx context.Context, window time.Durat
 				if !ok {
 					return EventStats{}
 				}
-				
+
 				stats := EventStats{
 					Timestamp: time.Now(),
 					Total:     len(items),
 					ByType:    make(map[EventType]int),
 				}
-				
+
 				for _, item := range items {
 					event, ok := item.(Event)
 					if !ok {
@@ -163,7 +163,7 @@ func (b *EventBroadcaster) AggregateStats(ctx context.Context, window time.Durat
 					}
 					stats.ByType[event.Type]++
 				}
-				
+
 				return stats
 			}).
 			Subscribe(ctx,
@@ -176,15 +176,15 @@ func (b *EventBroadcaster) AggregateStats(ctx context.Context, window time.Durat
 				nil,
 			)
 	}()
-	
+
 	return NewStream(ctx, resultCh, b.config)
 }
 
 // EventStats holds aggregated event statistics
 type EventStats struct {
-	Timestamp time.Time           `json:"timestamp"`
-	Total     int                 `json:"total"`
-	ByType    map[EventType]int   `json:"by_type"`
+	Timestamp time.Time         `json:"timestamp"`
+	Total     int               `json:"total"`
+	ByType    map[EventType]int `json:"by_type"`
 }
 
 // LogEvents subscribes to events and logs them

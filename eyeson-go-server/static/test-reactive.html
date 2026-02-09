@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Reactive Architecture Tester</title>
+    <style>
+        body { font-family: Arial; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; }
+        h1 { color: #333; }
+        button { padding: 10px 20px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        .section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 4px; }
+        .status { padding: 5px 10px; border-radius: 3px; font-weight: bold; }
+        .status.connected { background: #d4edda; color: #155724; }
+        .status.disconnected { background: #f8d7da; color: #721c24; }
+        #eventLog { height: 300px; overflow-y: auto; background: #f8f9fa; padding: 10px; font-family: monospace; font-size: 12px; border: 1px solid #ddd; }
+        .event { margin: 2px 0; padding: 3px; border-left: 3px solid #007bff; padding-left: 5px; }
+        .result { margin-top: 10px; padding: 10px; background: #e7f3ff; border-radius: 4px; }
+        pre { background: #f4f4f4; padding: 10px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Reactive Architecture Tester</h1>
+        
+        <div class="section">
+            <h3>Authentication</h3>
+            <input type="text" id="username" placeholder="Username" value="admin" />
+            <input type="password" id="password" placeholder="Password" value="admin123" />
+            <button onclick="login()">Login</button>
+            <div id="authResult"></div>
+        </div>
+
+        <div class="section">
+            <h3>1. Server-Sent Events (SSE) Stream</h3>
+            <p>Status: <span id="sseStatus" class="status disconnected">Disconnected</span></p>
+            <button onclick="connectSSE()">Connect to Event Stream</button>
+            <button onclick="disconnectSSE()">Disconnect</button>
+            <div id="eventLog"></div>
+        </div>
+
+        <div class="section">
+            <h3>2. Reactive SIM List</h3>
+            <button onclick="testReactiveSims()">Get Reactive SIM List</button>
+            <div id="simsResult"></div>
+        </div>
+
+        <div class="section">
+            <h3>3. Reactive Search (Debounced)</h3>
+            <input type="text" id="searchQuery" placeholder="Search..." />
+            <button onclick="testReactiveSearch()">Search</button>
+            <div id="searchResult"></div>
+        </div>
+
+        <div class="section">
+            <h3>4. Reactive Stats</h3>
+            <button onclick="testReactiveStats()">Get Event Statistics</button>
+            <div id="statsResult"></div>
+        </div>    <div class="section">
+            <h3>5. Generate Events</h3>
+            <p>Trigger some actions to see events in the SSE stream:</p>
+            <button onclick="generateEvent()">Change SIM Status (Generates Events)</button>
+            <div id="generateResult"></div>
+        </div>
+    </div>
+
+    <script>
+        let token = localStorage.getItem('token');
+        let eventSource = null;
+
+        async function login() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            
+            try {
+                const response = await fetch('/api/v1/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await response.json();
+                token = data.token;
+                localStorage.setItem('token', token);
+                document.getElementById('authResult').innerHTML = 
+                    '<div class="result">✓ Login successful</div>';
+            } catch (error) {
+                document.getElementById('authResult').innerHTML = 
+                    '<div class="result">✗ Login failed: ' + error + '</div>';
+            }
+        }
+
+        function connectSSE() {
+            if (eventSource) {
+                disconnectSSE();
+            }
+            
+            eventSource = new EventSource('/api/v1/reactive/events?user_id=admin', {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            
+            eventSource.onopen = () => {
+                document.getElementById('sseStatus').className = 'status connected';
+                document.getElementById('sseStatus').textContent = 'Connected';
+                addEvent('SSE connection opened');
+            };
+            
+            eventSource.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                addEvent('Event received: ' + JSON.stringify(data));
+            };
+            
+            eventSource.onerror = (error) => {
+                document.getElementById('sseStatus').className = 'status disconnected';
+                document.getElementById('sseStatus').textContent = 'Error';
+                addEvent('SSE error: ' + error);
+            };
+        }
+
+        function disconnectSSE() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+                document.getElementById('sseStatus').className = 'status disconnected';
+                document.getElementById('sseStatus').textContent = 'Disconnected';
+                addEvent('SSE connection closed');
+            }
+        }
+
+        function addEvent(message) {
+            const log = document.getElementById('eventLog');
+            const time = new Date().toLocaleTimeString();
+            log.innerHTML += '<div class="event">[' + time + '] ' + message + '</div>';
+            log.scrollTop = log.scrollHeight;
+        }
+
+        async function testReactiveSims() {
+            try {
+                const response = await fetch('/api/v1/reactive/sims', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const data = await response.json();
+                document.getElementById('simsResult').innerHTML = 
+                    '<div class="result">✓ Received ' + data.count + ' SIMs<pre>' + 
+                    JSON.stringify(data.sims.slice(0, 3), null, 2) + '\n...</pre></div>';
+            } catch (error) {
+                document.getElementById('simsResult').innerHTML = 
+                    '<div class="result">✗ Error: ' + error + '</div>';
+            }
+        }
+
+        async function testReactiveSearch() {
+            const query = document.getElementById('searchQuery').value;
+            try {
+                const response = await fetch('/api/v1/reactive/search?q=' + encodeURIComponent(query), {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const data = await response.json();
+                document.getElementById('searchResult').innerHTML = 
+                    '<div class="result">✓ Found ' + data.count + ' results for "' + query + '"<pre>' + 
+                    JSON.stringify(data.results.slice(0, 3), null, 2) + '\n...</pre></div>';
+            } catch (error) {
+                document.getElementById('searchResult').innerHTML = 
+                    '<div class="result">✗ Error: ' + error + '</div>';
+            }
+        }
+
+        async function testReactiveStats() {
+            try {
+                const response = await fetch('/api/v1/reactive/stats', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const data = await response.json();
+                document.getElementById('statsResult').innerHTML = 
+                    '<div class="result">✓ Stats received<pre>' + 
+                    JSON.stringify(data, null, 2) + '</pre></div>';
+            } catch (error) {
+                document.getElementById('statsResult').innerHTML = 
+                    '<div class="result">⚠ Timeout or no events (this is normal if no recent activity)</div>';
+            }
+        }
+
+        async function generateEvent() {
+            try {
+                const simsResponse = await fetch('/api/v1/sims', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const simsData = await simsResponse.json();
+                const firstSim = simsData.sims[0];
+                
+                if (firstSim) {
+                    const newStatus = firstSim.Status === 'Activated' ? 'Suspended' : 'Activated';
+                    const response = await fetch('/api/v1/sims/bulk-status', {
+                        method: 'POST',
+                        headers: { 
+                            'Authorization': 'Bearer ' + token,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            msisdns: [firstSim.MSISDN],
+                            newStatus: newStatus
+                        })
+                    });
+                    const data = await response.json();
+                    document.getElementById('generateResult').innerHTML = 
+                        '<div class="result">✓ Status change queued for ' + firstSim.MSISDN + 
+                        ' → ' + newStatus + '<br>Watch the SSE stream above for events!</div>';
+                }
+            } catch (error) {
+                document.getElementById('generateResult').innerHTML = 
+                    '<div class="result">✗ Error: ' + error + '</div>';
+            }
+        }
+
+        // Auto-login if token exists
+        if (token) {
+            document.getElementById('authResult').innerHTML = 
+                '<div class="result">Using saved token</div>';
+        }
+    </script>
+</body>
+</html>

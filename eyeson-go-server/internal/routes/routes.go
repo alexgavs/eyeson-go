@@ -166,10 +166,10 @@ func SetupRoutes(app *fiber.App, cfg *config.Config) {
 	// Reactive endpoints (protected)
 	reactive := api.Group("/reactive")
 	reactive.Use(handlers.JWTMiddleware)
-	reactive.Get("/events", handlers.ReactiveEventsHandler)      // Reactive SSE event stream
-	reactive.Get("/sims", handlers.ReactiveSimsListHandler)      // Reactive SIM list
-	reactive.Get("/search", handlers.ReactiveSimSearchHandler)   // Reactive debounced search
-	reactive.Get("/stats", handlers.ReactiveStatsHandler)        // Reactive aggregated stats
+	reactive.Get("/events", handlers.ReactiveEventsHandler)    // Reactive SSE event stream
+	reactive.Get("/sims", handlers.ReactiveSimsListHandler)    // Reactive SIM list
+	reactive.Get("/search", handlers.ReactiveSimSearchHandler) // Reactive debounced search
+	reactive.Get("/stats", handlers.ReactiveStatsHandler)      // Reactive aggregated stats
 
 	// Статические файлы
 	app.Static("/assets", "./static/assets")
