@@ -813,7 +813,7 @@ Invoke-RestMethod -Uri "http://localhost:5000/api/v1/reactive/search?q=972" `
 
         await runTest('t5', async function() {
             return new Promise(function(resolve, reject) {
-                var es = new EventSource('/api/v1/reactive/events?user_id=test');
+                var es = new EventSource('/api/v1/reactive/events?user_id=test&token=' + token);
                 var timeout = setTimeout(function() { es.close(); reject(new Error('Timeout')); }, 3000);
                 es.onmessage = function() { clearTimeout(timeout); es.close(); resolve(); };
                 es.onerror = function() { clearTimeout(timeout); es.close(); reject(new Error('SSE error')); };
