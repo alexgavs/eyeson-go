@@ -82,6 +82,13 @@ function App() {
   const [sort, setSort] = useState({ by: "", direction: "ASC" });
   const [pageSizeMode, setPageSizeMode] = useState<'auto' | number>('auto'); // 'auto' = dynamic fit
 
+  // Reactive Search
+  const [reactiveSearch, setReactiveSearch] = useState(true); // toggle
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [searchLatency, setSearchLatency] = useState<number | null>(null);
+  const [searchState, setSearchState] = useState<'idle' | 'typing' | 'searching'>('idle');
+  const prevSearchRef = useRef<string>('');
+
   // Dynamic page size: measure available viewport and calc rows
   const TABLE_ROW_HEIGHT = 37; // px per table row (compact)
   const tableCardRef = useRef<HTMLDivElement>(null);
@@ -585,6 +592,43 @@ function App() {
     return () => clearTimeout(timer);
   }, [pagination.limit, isLoggedIn, navPage]);
 
+  // Reactive debounced search: auto-search as user types
+  useEffect(() => {
+    if (!reactiveSearch || !isLoggedIn || navPage !== 'sims') return;
+    // Skip if search hasn't actually changed (e.g. initial mount)
+    if (search === prevSearchRef.current) return;
+    prevSearchRef.current = search;
+
+    // Clear previous debounce
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+
+    // If search is empty, load all immediately
+    if (!search) {
+      setSearchState('searching');
+      const t0 = performance.now();
+      loadData(0, pagination.limit, '', sort.by, sort.direction, statusFilter).then(() => {
+        setSearchLatency(Math.round(performance.now() - t0));
+        setSearchState('idle');
+      });
+      return;
+    }
+
+    // Debounce: wait 350ms after last keystroke
+    setSearchState('typing');
+    searchDebounceRef.current = setTimeout(() => {
+      setSearchState('searching');
+      const t0 = performance.now();
+      loadData(0, pagination.limit, search, sort.by, sort.direction, statusFilter).then(() => {
+        setSearchLatency(Math.round(performance.now() - t0));
+        setSearchState('idle');
+      });
+    }, 350);
+
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [search, reactiveSearch, isLoggedIn, navPage]);
+
   const handleLogout = () => {
     SessionManager.clear();
     localStorage.removeItem('token');
@@ -904,7 +948,26 @@ function App() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    loadData(0, pagination.limit, search);
+    // In reactive mode the search already fires on typing,
+    // but form submit acts as "instant" (cancel debounce & search now)
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    setSearchState('searching');
+    const t0 = performance.now();
+    loadData(0, pagination.limit, search).then(() => {
+      setSearchLatency(Math.round(performance.now() - t0));
+      setSearchState('idle');
+    });
+  };
+
+  const handleSearchClear = () => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    setSearch('');
+    setSearchState('idle');
+    setSearchLatency(null);
+    // If reactive is off, also trigger reload
+    if (!reactiveSearch) {
+      loadData(0, pagination.limit, '');
+    }
   };
 
   const handleSort = (column: string) => {
@@ -1527,20 +1590,34 @@ function App() {
             </div>
           )}
 
-          {/* Поиск и фильтры */}
+          {/* Поиск и фильтры — Reactive Search */}
           <div className="card mb-2">
             <div className="card-body py-2">
               <form onSubmit={handleSearch} className="row g-3 align-items-center">
                 <div className="col-md-6 col-lg-4 flex-grow-1">
                   <div className="input-group">
-                    <span className="input-group-text bg-dark border-secondary text-light">🔍</span>
+                    <span className="input-group-text bg-dark border-secondary text-light" style={{ fontSize: '.85rem' }}>
+                      {searchState === 'searching' ? (
+                        <span className="spinner-border spinner-border-sm text-primary" role="status" />
+                      ) : searchState === 'typing' ? (
+                        <span style={{ opacity: 0.6 }}>⏳</span>
+                      ) : '🔍'}
+                    </span>
                     <input 
                       type="text" 
                       className="form-control" 
-                      placeholder="Search by CLI, MSISDN, Label..." 
+                      placeholder={reactiveSearch ? "Reactive search — start typing..." : "Search by CLI, MSISDN, Label..."}
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') { handleSearchClear(); e.preventDefault(); }
+                      }}
                     />
+                    {search && (
+                      <button type="button" className="btn btn-outline-secondary border-secondary" onClick={handleSearchClear} title="Clear (Esc)">
+                        ✕
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="col-auto">
@@ -1558,11 +1635,42 @@ function App() {
                     <option value="Terminated">🔴 Terminated</option>
                   </select>
                 </div>
-                <div className="col-auto">
-                  <button type="submit" className="btn btn-primary" disabled={loading}>
-                    {loading ? "Searching..." : "Search"}
-                  </button>
+                <div className="col-auto d-flex align-items-center gap-2">
+                  {!reactiveSearch && (
+                    <button type="submit" className="btn btn-primary" disabled={loading}>
+                      {loading ? "Searching..." : "Search"}
+                    </button>
+                  )}
+                  <div className="form-check form-switch mb-0" title="Reactive: auto-search as you type with 350ms debounce">
+                    <input
+                      className="form-check-input"
+                      type="checkbox"
+                      id="reactiveToggle"
+                      checked={reactiveSearch}
+                      onChange={(e) => setReactiveSearch(e.target.checked)}
+                    />
+                    <label className="form-check-label text-muted" htmlFor="reactiveToggle" style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>
+                      Reactive
+                    </label>
+                  </div>
                 </div>
+                {/* Search meta: result count + latency */}
+                {(searchState !== 'idle' || searchLatency !== null) && (
+                  <div className="col-12">
+                    <small className="text-muted" style={{ fontSize: '.75rem' }}>
+                      {searchState === 'typing' && 'Debouncing (350ms)...'}
+                      {searchState === 'searching' && 'Searching...'}
+                      {searchState === 'idle' && searchLatency !== null && (
+                        <>
+                          <span className="text-light fw-bold">{total}</span> results
+                          {search && <> for &ldquo;<span className="text-info">{search}</span>&rdquo;</>}
+                          {' '}&bull; <span style={{ fontFamily: 'monospace' }}>{searchLatency}ms</span>
+                          {reactiveSearch && <> &bull; <span className="text-success">reactive</span></>}
+                        </>
+                      )}
+                    </small>
+                  </div>
+                )}
               </form>
             </div>
           </div>
