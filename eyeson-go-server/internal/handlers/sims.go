@@ -176,10 +176,12 @@ func GetSims(c *fiber.Ctx) error {
 		for _, t := range tasks {
 			// We can map the specific type of task if needed
 			action := "QUEUED"
-			if t.Type == "CHANGE_STATUS" {
+			if t.Type == "CHANGE_STATUS" || t.Type == "STATUS_CHANGE" || t.Type == "BULK_CHANGE" {
 				action = "Status Change Queued"
 			} else if t.Type == "UPDATE_SIM" {
 				action = "Update Queued"
+			} else if t.Type == "LABEL_UPDATE" {
+				action = "Label Update Queued"
 			}
 			pendingTasks[t.TargetMSISDN] = action
 		}

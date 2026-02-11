@@ -10,6 +10,7 @@ import (
 	"eyeson-go-server/internal/eyesont"
 	"eyeson-go-server/internal/handlers"
 	"eyeson-go-server/internal/models"
+	"eyeson-go-server/internal/reactive"
 	"eyeson-go-server/internal/services"
 	"fmt"
 	"log"
@@ -175,7 +176,17 @@ func (w *Worker) processTask(task models.SyncTaskExtended) {
 		if isFatalError {
 			log.Printf("[JobWorker] FATAL API Error detected - will not retry. Marking as COMPLETED with error.")
 			status = "COMPLETED" // Mark as completed so it doesn't retry
-			result = "SKIPPED: " + errMsg
+
+			// Produce a user-friendly result message
+			friendlyMsg := errMsg
+			if strings.Contains(errMsg, "initial value #null") {
+				friendlyMsg = fmt.Sprintf("SIM %s не имеет текущего статуса в системе провайдера (initial value = null). Синхронизируйте данные и попробуйте снова.", task.TargetMSISDN)
+			} else if strings.Contains(errMsg, "not allowed to request_type_id") {
+				friendlyMsg = fmt.Sprintf("Нет прав на изменение статуса SIM %s. Обратитесь к администратору.", task.TargetMSISDN)
+			} else if strings.Contains(errMsg, "subscriber not found") || strings.Contains(errMsg, "invalid subscriber") {
+				friendlyMsg = fmt.Sprintf("SIM %s не найдена в системе провайдера.", task.TargetMSISDN)
+			}
+			result = "SKIPPED: " + friendlyMsg
 			// Log to audit
 			services.Audit.LogQueueCompleted(task.ID, task.TargetMSISDN, result, durationMs)
 
@@ -230,6 +241,29 @@ func (w *Worker) processTask(task models.SyncTaskExtended) {
 		"result":     result,
 		"updated_at": time.Now(),
 	})
+
+	// Broadcast SSE event to notify UI of task completion/failure
+	broadcaster := handlers.GetEventBroadcaster()
+	if broadcaster != nil {
+		eventData := map[string]interface{}{
+			"task_id":       task.ID,
+			"type":          task.Type,
+			"status":        status,
+			"msisdn":        task.TargetMSISDN,
+			"result":        result,
+			"duration_ms":   durationMs,
+			"label_field":   task.LabelField,
+			"label_value":   task.LabelValue,
+		}
+
+		if status == "COMPLETED" {
+			broadcaster.Emit(reactive.EventTaskCompleted, eventData, "")
+			log.Printf("[JobWorker] Broadcast TASK_COMPLETED event for task %d", task.ID)
+		} else if status == "FAILED" {
+			broadcaster.Emit(reactive.EventTaskFailed, eventData, "")
+			log.Printf("[JobWorker] Broadcast TASK_FAILED event for task %d", task.ID)
+		}
+	}
 
 	// Create History Log for final status
 	if status == "FAILED" || status == "COMPLETED" {
@@ -330,9 +364,9 @@ func (w *Worker) handleUpdateSim(task models.SyncTaskExtended) (string, error) {
 	})
 
 	// НЕ синхронизируем с API сразу - Pelephone имеет eventual consistency
-	// Запланируем отложенную синхронизацию через 5 секунд
+	// Запланируем отложенную синхронизацию через 15 секунд (увеличено с 5 до 15 для избежания race condition)
 	go func(m string) {
-		time.Sleep(5 * time.Second)
+		time.Sleep(15 * time.Second)
 		w.syncSimsFromAPI([]string{m})
 	}(msisdn)
 
@@ -352,6 +386,26 @@ func (w *Worker) handleChangeStatus(task models.SyncTaskExtended) (string, error
 
 	if len(p.Msisdns) == 0 {
 		return "No MSISDNs", nil
+	}
+
+	// Pre-validate: query each SIM's current status from upstream API.
+	// The Pelephone API determines "initialValue" server-side; if it resolves
+	// to null the request is rejected. By checking beforehand we can give a
+	// clear error instead of a cryptic permission-denied message.
+	for _, msisdn := range p.Msisdns {
+		upstreamStatus, err := w.Client.GetSimStatus(msisdn)
+		if err != nil {
+			log.Printf("[JobWorker] Pre-validation WARNING for %s: %v", msisdn, err)
+			// Network errors should not block – let the actual API call handle it
+			continue
+		}
+		if upstreamStatus == "" {
+			return "", fmt.Errorf(
+				"SIM %s has no status in upstream API (initial value would be null). "+
+					"Cannot change status to %s. Please sync data first or verify the SIM in the provider portal",
+				eyesont.NormalizeMSISDN(msisdn), p.Status)
+		}
+		log.Printf("[JobWorker] Pre-validated SIM %s: current upstream status = %s", msisdn, upstreamStatus)
 	}
 
 	// Call API
@@ -380,9 +434,9 @@ func (w *Worker) handleChangeStatus(task models.SyncTaskExtended) (string, error
 	// Синхронизация произойдёт при следующем полном sync цикле
 	// w.syncSimsFromAPI(p.Msisdns)
 
-	// Запланируем отложенную синхронизацию через 5 секунд
+	// Запланируем отложенную синхронизацию через 15 секунд (увеличено с 5 до 15 для избежания race condition)
 	go func(msisdns []string) {
-		time.Sleep(5 * time.Second)
+		time.Sleep(15 * time.Second)
 		w.syncSimsFromAPI(msisdns)
 		handlers.InvalidateStatsCache()
 	}(p.Msisdns)

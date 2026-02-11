@@ -450,19 +450,37 @@ function App() {
             } else if (jobStatus === 'FAILED') {
               // Extract error message from backend response
               const errorDetail = jobData.error || jobData.result || '';
-              const errorMsg = errorDetail
-                ? `✗ Ошибка: ${errorDetail}`
-                : `✗ Ошибка изменения статуса`;
+              // Translate common Pelephone API errors to user-friendly messages
+              let friendlyMsg = errorDetail;
+              if (errorDetail.includes('initial value #null')) {
+                friendlyMsg = 'SIM-карта не имеет текущего статуса в системе провайдера. Синхронизируйте данные и попробуйте снова.';
+              } else if (errorDetail.includes('not allowed to request_type_id')) {
+                friendlyMsg = 'Нет прав на изменение статуса данной SIM-карты. Обратитесь к администратору.';
+              } else if (errorDetail.includes('subscriber not found') || errorDetail.includes('not found in upstream')) {
+                friendlyMsg = 'SIM-карта не найдена в системе провайдера.';
+              } else if (errorDetail.includes('Permission Denied')) {
+                friendlyMsg = 'Нет прав на выполнение операции.';
+              }
+              const errorMsg = `✗ Ошибка: ${friendlyMsg}`;
               console.warn(`✗ Job ${job.requestId} failed: ${errorDetail}`);
               showToast(errorMsg, 'danger');
               
-              // Revert optimistic update — clear pending and reload real data from DB
-              setSims(prev => prev.map(s => 
-                job.msisdns.includes(s.MSISDN) ? { ...s, _pending: false } : s
-              ));
-              setSelectedSim((prev: any) =>
-                prev && job.msisdns.includes(prev.MSISDN) ? { ...prev, _pending: false } : prev
-              );
+              // Revert optimistic update — restore old status from saved data
+              const oldMap = job.oldStatuses || {};
+              setSims(prev => prev.map(s => {
+                if (job.msisdns.includes(s.MSISDN)) {
+                  const restored = oldMap[s.MSISDN];
+                  return { ...s, SIM_STATUS_CHANGE: restored || s.SIM_STATUS_CHANGE, _pending: false };
+                }
+                return s;
+              }));
+              setSelectedSim((prev: any) => {
+                if (prev && job.msisdns.includes(prev.MSISDN)) {
+                  const restored = oldMap[prev.MSISDN];
+                  return { ...prev, SIM_STATUS_CHANGE: restored || prev.SIM_STATUS_CHANGE, _pending: false };
+                }
+                return prev;
+              });
               setPendingStatuses(prev => {
                 const newMap = new Map(prev);
                 job.msisdns.forEach(m => newMap.delete(m));
@@ -650,11 +668,19 @@ function App() {
     setLoading(true);
     try {
       const response = await GetSims(searchTerm, start, limit, sortBy, sortDirection, status);
-      setSims(response.data || []);
+      const freshSims = response.data || [];
+      setSims(freshSims);
       setTotal(response.count || 0);
       setPagination({ start, limit });
       setSort({ by: sortBy, direction: sortDirection });
       setSelectedSims(new Set());
+
+      // Sync selectedSim with fresh data (e.g. after failed status change revert)
+      setSelectedSim((prev: any) => {
+        if (!prev) return prev;
+        const fresh = freshSims.find((s: any) => s.MSISDN === prev.MSISDN);
+        return fresh ? { ...prev, ...fresh, _pending: prev._pending } : prev;
+      });
     } catch (e) {
       showToast("Ошибка загрузки: " + e, 'danger');
     }
@@ -837,6 +863,50 @@ function App() {
       setUpstreamRestartRequired(false);
     }
   }, [isAdmin, loadUpstream]);
+
+  // SSE connection for real-time task updates
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    console.log('[SSE] Connecting to reactive events...');
+    const eventSource = new EventSource(`/api/v1/reactive/events?token=${token}`);
+
+    eventSource.onopen = () => {
+      console.log('[SSE] Connected to reactive events stream');
+    };
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log('[SSE] Received event:', data);
+
+        // Refresh data when tasks complete or fail
+        if (data.type === 'TASK_COMPLETED' || data.type === 'TASK_FAILED') {
+          console.log('[SSE] Task finished, refreshing data...');
+          loadData(pagination.start, pagination.limit);
+          // Also refresh stats if it was a status change
+          if (data.data?.type === 'CHANGE_STATUS' || data.data?.type === 'STATUS_CHANGE' || data.data?.type === 'BULK_CHANGE') {
+            loadStats(true);
+          }
+        }
+      } catch (e) {
+        console.error('[SSE] Error parsing event:', e);
+      }
+    };
+
+    eventSource.onerror = (error) => {
+      console.error('[SSE] Connection error:', error);
+      eventSource.close();
+    };
+
+    return () => {
+      console.log('[SSE] Disconnecting from reactive events');
+      eventSource.close();
+    };
+  }, [isLoggedIn, pagination.start, pagination.limit, loadData, loadStats]);
 
   const openCreateUserModal = () => {
     setEditingUser(null);
@@ -1075,12 +1145,15 @@ function App() {
         setSelectedSims(new Set());
 
         // Добавляем Job в очередь polling
+        const bulkOldStatuses: Record<string, string> = {};
+        items.forEach(item => { bulkOldStatuses[item.msisdn] = item.old_status || ''; });
         setPendingJobs(prev => [...prev, {
           requestId: result.requestId!,
           msisdns,
           targetStatus: status,
           startTime: Date.now(),
-          attempts: 0
+          attempts: 0,
+          oldStatuses: bulkOldStatuses
         }]);
       } else {
         showToast('✓ Статус обновлён', 'success');
@@ -1148,7 +1221,8 @@ function App() {
           msisdns: [msisdn],
           targetStatus: status,
           startTime: Date.now(),
-          attempts: 0
+          attempts: 0,
+          oldStatuses: { [msisdn]: oldStatus }
         }]);
       } else {
         showToast('✓ Статус обновлён', 'success');

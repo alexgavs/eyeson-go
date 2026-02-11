@@ -4,6 +4,7 @@ export interface PendingJob {
   targetStatus: string;
   startTime: number;
   attempts: number;
+  oldStatuses?: Record<string, string>;
 }
 
 export interface PendingStatus {

@@ -586,6 +586,38 @@ func (c *Client) GetJobs(start, limit, jobId int, jobStatus string) (*models.Get
 	return &result, nil
 }
 
+// GetSimStatus queries the upstream API for a single SIM's current status.
+// Returns the SIM_STATUS_CHANGE value or empty string if not found.
+// This is used for pre-validation before sending status change requests.
+func (c *Client) GetSimStatus(msisdn string) (string, error) {
+	normalizedID := NormalizeMSISDN(msisdn)
+	searchCriteria := []models.SearchParam{
+		{FieldName: "MSISDN", FieldValue: normalizedID},
+	}
+
+	resp, err := c.GetSims(0, 1, searchCriteria, "", "")
+	if err != nil {
+		return "", fmt.Errorf("failed to query SIM status from upstream: %w", err)
+	}
+
+	if len(resp.Data) == 0 {
+		// Try searching by CLI as well
+		searchCriteria = []models.SearchParam{
+			{FieldName: "CLI", FieldValue: normalizedID},
+		}
+		resp, err = c.GetSims(0, 1, searchCriteria, "", "")
+		if err != nil {
+			return "", fmt.Errorf("failed to query SIM status by CLI from upstream: %w", err)
+		}
+	}
+
+	if len(resp.Data) == 0 {
+		return "", fmt.Errorf("subscriber %s not found in upstream API", normalizedID)
+	}
+
+	return resp.Data[0].SimStatusChange, nil
+}
+
 // CheckConnection checks if the API is reachable
 func (c *Client) CheckConnection() bool {
 	// Simple health check using login endpoint (assuming session is valid, or just checking reachability)

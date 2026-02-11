@@ -31,6 +31,11 @@ func init() {
 	simRepository = reactive.NewSimRepository()
 }
 
+// GetEventBroadcaster returns the global event broadcaster instance
+func GetEventBroadcaster() *reactive.EventBroadcaster {
+	return eventBroadcaster
+}
+
 // ReactiveEventsHandler establishes a reactive SSE connection
 func ReactiveEventsHandler(c *fiber.Ctx) error {
 	userID := c.Query("user_id", "")
